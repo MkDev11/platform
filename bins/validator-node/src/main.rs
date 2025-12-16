@@ -829,6 +829,29 @@ async fn main() -> Result<()> {
                     }
                     BlockSyncEvent::CommitWindowOpen { epoch, block } => {
                         info!("Commit window opened for epoch {} at block {}", epoch, block);
+
+                        // Collect and commit weights for all mechanisms
+                        // This is the primary trigger for weight submission (event-driven from Bittensor)
+                        
+                        // Collect weights from all challenges (async)
+                        let mechanism_weights = runtime_for_blocks.collect_and_get_weights().await;
+                        
+                        if let Some(ref submitter) = weight_submitter_clone {
+                            let weights_to_submit = if mechanism_weights.is_empty() {
+                                // No challenge weights - submit burn weights to UID 0
+                                info!("No challenge weights for epoch {} - submitting burn weights", epoch);
+                                vec![(0u8, vec![0u16], vec![65535u16])]
+                            } else {
+                                info!("Committing weights for {} mechanisms", mechanism_weights.len());
+                                mechanism_weights
+                            };
+
+                            let mut sub = submitter.lock().await;
+                            match sub.submit_mechanism_weights_batch(&weights_to_submit).await {
+                                Ok(tx) => info!("Mechanism weights committed to Bittensor: {}", tx),
+                                Err(e) => error!("Failed to commit mechanism weights: {}", e),
+                            }
+                        }
                     }
                     BlockSyncEvent::RevealWindowOpen { epoch, block } => {
                         info!("Reveal window opened for epoch {} at block {}", epoch, block);

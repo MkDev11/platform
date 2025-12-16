@@ -309,26 +309,12 @@ impl ChallengeRuntime {
         Ok(())
     }
 
-    /// Handle phase change
+    /// Handle phase change - just logs, does not trigger commit/reveal
+    /// 
+    /// Commit/reveal are triggered by Bittensor events (CommitWindowOpen, RevealWindowOpen)
+    /// not by internal phase tracking. This ensures timing matches Bittensor exactly.
     async fn on_phase_change(&self, epoch: u64, phase: EpochPhase) -> Result<(), RuntimeError> {
-        info!("Epoch {} phase: {}", epoch, phase);
-
-        match phase {
-            EpochPhase::Commit => {
-                // Calculate and commit weights for all challenges
-                self.commit_weights(epoch).await?;
-            }
-            EpochPhase::Reveal => {
-                // Reveal weights for all challenges
-                self.reveal_weights(epoch).await?;
-            }
-            EpochPhase::Finalization => {
-                // Finalize weights
-                self.finalize_weights(epoch).await?;
-            }
-            _ => {}
-        }
-
+        info!("Epoch {} phase: {} (info only - actions triggered by Bittensor events)", epoch, phase);
         Ok(())
     }
 
@@ -400,7 +386,9 @@ impl ChallengeRuntime {
     }
 
     /// Commit weights for all mechanisms
-    async fn commit_weights(&self, epoch: u64) -> Result<(), RuntimeError> {
+    /// 
+    /// Called when Bittensor CommitWindowOpen event fires.
+    pub async fn commit_weights(&self, epoch: u64) -> Result<(), RuntimeError> {
         info!("Committing weights for epoch {} (per mechanism)", epoch);
 
         // First collect weights from all challenges
@@ -449,7 +437,9 @@ impl ChallengeRuntime {
     }
 
     /// Reveal weights for all mechanisms
-    async fn reveal_weights(&self, epoch: u64) -> Result<(), RuntimeError> {
+    /// 
+    /// Called when Bittensor RevealWindowOpen event fires.
+    pub async fn reveal_weights(&self, epoch: u64) -> Result<(), RuntimeError> {
         info!("Revealing weights for epoch {} (per mechanism)", epoch);
 
         let all_mechanisms = self.mechanism_weights.read().list_mechanisms();
@@ -524,8 +514,78 @@ impl ChallengeRuntime {
 
     /// Get all mechanism weights for batch submission to Bittensor
     /// Returns Vec<(mechanism_id, uids, weights)> for use with batch_set_mechanism_weights
+    /// 
+    /// Note: This returns revealed weights from internal commit-reveal.
+    /// For direct weights, use collect_and_get_weights() instead.
     pub fn get_mechanism_weights_for_submission(&self) -> Vec<(u8, Vec<u16>, Vec<u16>)> {
         self.mechanism_commit_reveal.get_revealed_weights()
+    }
+
+    /// Collect weights from all challenges and return them for Bittensor submission
+    /// 
+    /// This is the primary method for event-driven weight submission.
+    /// Called when Bittensor CommitWindowOpen event fires.
+    pub async fn collect_and_get_weights(&self) -> Vec<(u8, Vec<u16>, Vec<u16>)> {
+        let epoch = self.epoch_manager.current_epoch();
+        info!("Collecting weights for epoch {} (event-driven)", epoch);
+
+        let mut result = Vec::new();
+
+        for challenge_id in self.manager.list_challenges() {
+            let mechanism_id = match self.challenge_mechanisms.read().get(&challenge_id) {
+                Some(id) => *id,
+                None => {
+                    warn!("Challenge {} has no mechanism_id, skipping", challenge_id);
+                    continue;
+                }
+            };
+
+            let ctx = match self.manager.get_context(&challenge_id) {
+                Some(ctx) => ctx,
+                None => continue,
+            };
+
+            let challenge = match self.manager.get_challenge(&challenge_id) {
+                Some(c) => c,
+                None => continue,
+            };
+
+            // Calculate weights from this challenge
+            match challenge.calculate_weights(&ctx).await {
+                Ok(weights) => {
+                    if weights.is_empty() {
+                        debug!("Challenge {} has no weights", challenge_id);
+                        continue;
+                    }
+
+                    info!(
+                        "Challenge {} -> mechanism {}: {} weights",
+                        challenge_id,
+                        mechanism_id,
+                        weights.len()
+                    );
+
+                    // Convert to Bittensor format (uid, weight as u16)
+                    // For now, use placeholder UIDs - actual UID mapping would come from metagraph
+                    let uids: Vec<u16> = (0..weights.len() as u16).collect();
+                    let weight_values: Vec<u16> = weights
+                        .iter()
+                        .map(|w| (w.weight.clamp(0.0, 1.0) * 65535.0) as u16)
+                        .collect();
+
+                    result.push((mechanism_id, uids, weight_values));
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to calculate weights for challenge {}: {}",
+                        challenge_id, e
+                    );
+                }
+            }
+        }
+
+        info!("Collected weights for {} mechanisms", result.len());
+        result
     }
 
     /// Get all registered mechanism IDs (for initial weight submission)
