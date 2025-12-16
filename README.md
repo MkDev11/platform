@@ -81,6 +81,23 @@ If validators run different versions:
 
 **Do not disable Watchtower.** All validators must update at the same time to maintain consensus.
 
+## Network Requirements
+
+**Port 9000/tcp must be open** for P2P communication between validators.
+
+```bash
+# Open port (ufw)
+sudo ufw allow 9000/tcp
+
+# Or iptables
+sudo iptables -A INPUT -p tcp --dport 9000 -j ACCEPT
+```
+
+| Port | Protocol | Usage |
+|------|----------|-------|
+| 9000/tcp | P2P (libp2p) | Validator communication (required) |
+| 8080/tcp | HTTP | RPC API (optional) |
+
 ## Configuration
 
 | Variable | Description | Required |
