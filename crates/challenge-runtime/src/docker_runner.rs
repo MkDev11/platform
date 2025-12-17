@@ -25,8 +25,12 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// Allowed base images for agent execution
-/// SECURITY: Only these images are allowed to run agents
+/// SECURITY: Only images from PlatformNetwork or official language images are allowed
 pub const ALLOWED_BASE_IMAGES: &[&str] = &[
+    // All PlatformNetwork images from GitHub Container Registry
+    "ghcr.io/platformnetwork/",
+    "ghcr.io/PlatformNetwork/",
+    // Official language runtime images (for running agent code)
     "python:3.11-slim",
     "python:3.12-slim",
     "python:3.11",
@@ -35,7 +39,6 @@ pub const ALLOWED_BASE_IMAGES: &[&str] = &[
     "node:22-slim",
     "rust:1.75-slim",
     "rust:1.76-slim",
-    "ghcr.io/platformnetwork/agent-runner:", // Custom runner images
 ];
 
 /// Docker runner configuration
