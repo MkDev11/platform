@@ -70,9 +70,110 @@ impl DockerClient {
 
             self.docker.create_network(config).await?;
             info!(network = %self.network_name, "Created Docker network");
+        } else {
+            debug!(network = %self.network_name, "Docker network already exists");
         }
 
         Ok(())
+    }
+
+    /// Connect the current container to the platform network
+    /// This allows the validator to communicate with challenge containers via hostname
+    pub async fn connect_self_to_network(&self) -> anyhow::Result<()> {
+        // Get our container ID from the hostname or cgroup
+        let container_id = self.get_self_container_id()?;
+
+        // Check if already connected
+        let inspect = self.docker.inspect_container(&container_id, None).await?;
+        let networks = inspect
+            .network_settings
+            .as_ref()
+            .and_then(|ns| ns.networks.as_ref());
+
+        if let Some(nets) = networks {
+            if nets.contains_key(&self.network_name) {
+                debug!(
+                    container = %container_id,
+                    network = %self.network_name,
+                    "Container already connected to network"
+                );
+                return Ok(());
+            }
+        }
+
+        // Connect to the network
+        use bollard::models::EndpointSettings;
+        use bollard::network::ConnectNetworkOptions;
+
+        let config = ConnectNetworkOptions {
+            container: container_id.clone(),
+            endpoint_config: EndpointSettings::default(),
+        };
+
+        self.docker
+            .connect_network(&self.network_name, config)
+            .await?;
+
+        info!(
+            container = %container_id,
+            network = %self.network_name,
+            "Connected validator container to platform network"
+        );
+
+        Ok(())
+    }
+
+    /// Get the container ID of the current process (if running in Docker)
+    fn get_self_container_id(&self) -> anyhow::Result<String> {
+        // Method 1: Check hostname (Docker sets hostname to container ID by default)
+        if let Ok(hostname) = std::env::var("HOSTNAME") {
+            // Docker container IDs are 12+ hex characters
+            if hostname.len() >= 12 && hostname.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Ok(hostname);
+            }
+        }
+
+        // Method 2: Parse from cgroup (works on Linux)
+        if let Ok(cgroup) = std::fs::read_to_string("/proc/self/cgroup") {
+            for line in cgroup.lines() {
+                // Docker cgroup format: .../docker/<container_id>
+                if let Some(docker_pos) = line.rfind("/docker/") {
+                    let id = &line[docker_pos + 8..];
+                    if id.len() >= 12 {
+                        return Ok(id[..12].to_string());
+                    }
+                }
+                // Kubernetes/containerd format: .../cri-containerd-<container_id>
+                if let Some(containerd_pos) = line.rfind("cri-containerd-") {
+                    let id = &line[containerd_pos + 15..];
+                    if id.len() >= 12 {
+                        return Ok(id[..12].to_string());
+                    }
+                }
+            }
+        }
+
+        // Method 3: Check /.dockerenv file exists
+        if std::path::Path::new("/.dockerenv").exists() {
+            // If we're in Docker but can't get ID, try the mountinfo
+            if let Ok(mountinfo) = std::fs::read_to_string("/proc/self/mountinfo") {
+                for line in mountinfo.lines() {
+                    if line.contains("/docker/containers/") {
+                        if let Some(start) = line.find("/docker/containers/") {
+                            let rest = &line[start + 19..];
+                            if let Some(end) = rest.find('/') {
+                                let id = &rest[..end];
+                                if id.len() >= 12 {
+                                    return Ok(id[..12].to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        anyhow::bail!("Not running in a Docker container or unable to determine container ID")
     }
 
     /// Check if a Docker image is from an allowed registry

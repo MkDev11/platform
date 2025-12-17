@@ -32,9 +32,21 @@ pub struct ChallengeOrchestrator {
     config: OrchestratorConfig,
 }
 
+/// Default network name for Platform containers
+pub const PLATFORM_NETWORK: &str = "platform-network";
+
 impl ChallengeOrchestrator {
     pub async fn new(config: OrchestratorConfig) -> anyhow::Result<Self> {
-        let docker = DockerClient::connect().await?;
+        let docker = DockerClient::connect_with_network(PLATFORM_NETWORK).await?;
+
+        // Ensure the Docker network exists
+        docker.ensure_network().await?;
+
+        // Try to connect the current container to the network (if running in Docker)
+        if let Err(e) = docker.connect_self_to_network().await {
+            tracing::debug!("Could not connect to network (may not be in Docker): {}", e);
+        }
+
         let challenges = Arc::new(RwLock::new(HashMap::new()));
         let health_monitor = HealthMonitor::new(challenges.clone(), config.health_check_interval);
 
