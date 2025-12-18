@@ -547,6 +547,81 @@ impl RpcHandler {
 
     fn chain_get_state(&self, id: Value) -> JsonRpcResponse {
         let chain = self.chain_state.read();
+
+        // Serialize challenge_configs
+        let challenge_configs: serde_json::Map<String, Value> = chain
+            .challenge_configs
+            .iter()
+            .map(|(id, config)| {
+                (
+                    id.to_string(),
+                    json!({
+                        "challenge_id": id.to_string(),
+                        "name": config.name,
+                        "docker_image": config.docker_image,
+                        "mechanism_id": config.mechanism_id,
+                        "emission_weight": config.emission_weight,
+                        "timeout_secs": config.timeout_secs,
+                        "cpu_cores": config.cpu_cores,
+                        "memory_mb": config.memory_mb,
+                        "gpu_required": config.gpu_required,
+                    }),
+                )
+            })
+            .collect();
+
+        // Serialize mechanism_configs
+        let mechanism_configs: serde_json::Map<String, Value> = chain
+            .mechanism_configs
+            .iter()
+            .map(|(id, config)| {
+                (
+                    id.to_string(),
+                    json!({
+                        "mechanism_id": config.mechanism_id,
+                        "base_burn_rate": config.base_burn_rate,
+                        "equal_distribution": config.equal_distribution,
+                        "min_weight_threshold": config.min_weight_threshold,
+                        "max_weight_cap": config.max_weight_cap,
+                        "is_active": config.active,
+                    }),
+                )
+            })
+            .collect();
+
+        // Serialize challenge_weights
+        let challenge_weights: serde_json::Map<String, Value> = chain
+            .challenge_weights
+            .iter()
+            .map(|(id, alloc)| {
+                (
+                    id.to_string(),
+                    json!({
+                        "challenge_id": id.to_string(),
+                        "mechanism_id": alloc.mechanism_id,
+                        "weight_ratio": alloc.weight_ratio,
+                        "active": alloc.active,
+                    }),
+                )
+            })
+            .collect();
+
+        // Serialize validators
+        let validators: serde_json::Map<String, Value> = chain
+            .validators
+            .iter()
+            .map(|(hotkey, info)| {
+                (
+                    hotkey.to_hex(),
+                    json!({
+                        "hotkey": hotkey.to_hex(),
+                        "stake": info.stake.0,
+                        "stake_tao": info.stake.as_tao(),
+                    }),
+                )
+            })
+            .collect();
+
         JsonRpcResponse::result(
             id,
             json!({
@@ -554,8 +629,11 @@ impl RpcHandler {
                 "epoch": chain.epoch,
                 "stateHash": format!("0x{}", hex::encode(&chain.state_hash)),
                 "sudoKey": chain.sudo_key.to_hex(),
-                "validators": chain.validators.len(),
+                "validators": validators,
                 "challenges": chain.challenges.len(),
+                "challenge_configs": challenge_configs,
+                "mechanism_configs": mechanism_configs,
+                "challenge_weights": challenge_weights,
                 "pendingJobs": chain.pending_jobs.len(),
                 "config": {
                     "subnetId": chain.config.subnet_id,
