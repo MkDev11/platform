@@ -185,14 +185,18 @@ impl HotkeyConnectionResult {
 /// Network protection manager
 pub struct NetworkProtection {
     config: RwLock<ProtectionConfig>,
-    /// Rate limiters per peer ID
+    /// Rate limiters per peer ID (legacy, kept for backwards compatibility)
     rate_limiters: RwLock<HashMap<String, RateLimiter>>,
+    /// SECURITY: Rate limiters per HOTKEY (prevents peer_id spoofing bypass)
+    hotkey_rate_limiters: RwLock<HashMap<String, RateLimiter>>,
     /// Connection counts per IP
     connections: RwLock<HashMap<IpAddr, ConnectionTracker>>,
     /// Blacklisted peers (by peer ID)
     blacklist_peers: RwLock<HashMap<String, BlacklistEntry>>,
     /// Blacklisted IPs
     blacklist_ips: RwLock<HashMap<IpAddr, BlacklistEntry>>,
+    /// SECURITY: Blacklisted hotkeys
+    blacklist_hotkeys: RwLock<HashMap<String, BlacklistEntry>>,
     /// Validated stakes cache (hotkey hex -> stake in RAO)
     stake_cache: RwLock<HashMap<String, (u64, Instant)>>,
     /// Cache TTL
@@ -213,9 +217,11 @@ impl NetworkProtection {
         Self {
             config: RwLock::new(config),
             rate_limiters: RwLock::new(HashMap::new()),
+            hotkey_rate_limiters: RwLock::new(HashMap::new()),
             connections: RwLock::new(HashMap::new()),
             blacklist_peers: RwLock::new(HashMap::new()),
             blacklist_ips: RwLock::new(HashMap::new()),
+            blacklist_hotkeys: RwLock::new(HashMap::new()),
             stake_cache: RwLock::new(HashMap::new()),
             cache_ttl: Duration::from_secs(300), // 5 minute cache
             connected_hotkeys: RwLock::new(HashMap::new()),
@@ -239,7 +245,8 @@ impl NetworkProtection {
         self.config.read().clone()
     }
 
-    /// Check if a peer is allowed (rate limit check)
+    /// Check if a peer is allowed (rate limit check) - LEGACY
+    /// DEPRECATED: Use check_rate_limit_by_hotkey instead for security
     pub fn check_rate_limit(&self, peer_id: &str) -> bool {
         let config = self.config.read();
         if !config.rate_limiting {
@@ -257,6 +264,87 @@ impl NetworkProtection {
             debug!("Rate limit exceeded for peer: {}", peer_id);
             false
         }
+    }
+
+    /// SECURITY: Check rate limit by HOTKEY (prevents peer_id bypass attacks)
+    ///
+    /// This is the secure rate limiting method that should be used for all
+    /// validator operations. An attacker cannot bypass this by creating
+    /// new peer_ids since rate limiting is tied to the cryptographic hotkey.
+    ///
+    /// Returns: (allowed, remaining_quota)
+    pub fn check_rate_limit_by_hotkey(&self, hotkey_hex: &str) -> (bool, u32) {
+        let config = self.config.read();
+        if !config.rate_limiting {
+            return (true, config.rate_limit);
+        }
+
+        // Check if hotkey is blacklisted first
+        if self.is_hotkey_blacklisted(hotkey_hex) {
+            warn!(
+                "SECURITY: Rate limit check denied for blacklisted hotkey: {}",
+                &hotkey_hex[..16.min(hotkey_hex.len())]
+            );
+            return (false, 0);
+        }
+
+        let mut limiters = self.hotkey_rate_limiters.write();
+        let limiter = limiters
+            .entry(hotkey_hex.to_string())
+            .or_insert_with(|| RateLimiter::new(config.rate_limit));
+
+        let remaining = limiter.limit.saturating_sub(limiter.count);
+
+        if limiter.check() {
+            (true, remaining.saturating_sub(1))
+        } else {
+            debug!(
+                "SECURITY: Rate limit exceeded for hotkey: {}",
+                &hotkey_hex[..16.min(hotkey_hex.len())]
+            );
+            (false, 0)
+        }
+    }
+
+    /// Check if a hotkey is blacklisted
+    pub fn is_hotkey_blacklisted(&self, hotkey_hex: &str) -> bool {
+        let mut blacklist = self.blacklist_hotkeys.write();
+
+        if let Some(entry) = blacklist.get(hotkey_hex) {
+            if entry.is_expired() {
+                blacklist.remove(hotkey_hex);
+                return false;
+            }
+            return true;
+        }
+        false
+    }
+
+    /// Blacklist a hotkey
+    pub fn blacklist_hotkey(&self, hotkey_hex: &str, duration: Duration, reason: String) {
+        info!(
+            "SECURITY: Blacklisting hotkey {} for {:?}: {}",
+            &hotkey_hex[..16.min(hotkey_hex.len())],
+            duration,
+            reason
+        );
+
+        // Also disconnect if connected
+        self.disconnect_hotkey_by_key(hotkey_hex);
+
+        self.blacklist_hotkeys.write().insert(
+            hotkey_hex.to_string(),
+            BlacklistEntry {
+                added_at: Instant::now(),
+                duration,
+                reason,
+            },
+        );
+    }
+
+    /// Remove hotkey from blacklist
+    pub fn unblacklist_hotkey(&self, hotkey_hex: &str) {
+        self.blacklist_hotkeys.write().remove(hotkey_hex);
     }
 
     /// Check if an IP can connect
@@ -607,9 +695,13 @@ impl NetworkProtection {
 
     /// Clear expired entries (call periodically)
     pub fn cleanup(&self) {
-        // Clean rate limiters older than 1 minute
+        // Clean rate limiters older than 1 minute (legacy peer-based)
         let mut limiters = self.rate_limiters.write();
         limiters.retain(|_, l| l.window_start.elapsed() < Duration::from_secs(60));
+
+        // Clean hotkey rate limiters older than 1 minute
+        let mut hotkey_limiters = self.hotkey_rate_limiters.write();
+        hotkey_limiters.retain(|_, l| l.window_start.elapsed() < Duration::from_secs(60));
 
         // Clean expired blacklist entries
         let mut peer_blacklist = self.blacklist_peers.write();
@@ -617,6 +709,10 @@ impl NetworkProtection {
 
         let mut ip_blacklist = self.blacklist_ips.write();
         ip_blacklist.retain(|_, e| !e.is_expired());
+
+        // Clean expired hotkey blacklist entries
+        let mut hotkey_blacklist = self.blacklist_hotkeys.write();
+        hotkey_blacklist.retain(|_, e| !e.is_expired());
 
         // Clean idle connection trackers
         let mut connections = self.connections.write();
@@ -636,6 +732,7 @@ impl NetworkProtection {
     pub fn stats(&self) -> ProtectionStats {
         ProtectionStats {
             active_rate_limiters: self.rate_limiters.read().len(),
+            hotkey_rate_limiters: self.hotkey_rate_limiters.read().len(),
             active_connections: self
                 .connections
                 .read()
@@ -644,7 +741,9 @@ impl NetworkProtection {
                 .sum(),
             blacklisted_peers: self.blacklist_peers.read().len(),
             blacklisted_ips: self.blacklist_ips.read().len(),
+            blacklisted_hotkeys: self.blacklist_hotkeys.read().len(),
             cached_stakes: self.stake_cache.read().len(),
+            connected_validators: self.connected_hotkeys.read().len(),
         }
     }
 }
@@ -653,10 +752,13 @@ impl NetworkProtection {
 #[derive(Debug, Clone)]
 pub struct ProtectionStats {
     pub active_rate_limiters: usize,
+    pub hotkey_rate_limiters: usize,
     pub active_connections: usize,
     pub blacklisted_peers: usize,
     pub blacklisted_ips: usize,
+    pub blacklisted_hotkeys: usize,
     pub cached_stakes: usize,
+    pub connected_validators: usize,
 }
 
 /// Helper function to validate stake meets minimum
@@ -984,5 +1086,141 @@ mod tests {
         assert_eq!(hotkeys.len(), 2);
         assert!(hotkeys.contains(&"hotkey1_abc123456789".to_string()));
         assert!(hotkeys.contains(&"hotkey2_def123456789".to_string()));
+    }
+
+    // ==================== HOTKEY RATE LIMIT TESTS ====================
+
+    #[test]
+    fn test_rate_limit_by_hotkey() {
+        let config = ProtectionConfig {
+            rate_limit: 5,
+            rate_limiting: true,
+            ..Default::default()
+        };
+        let protection = NetworkProtection::new(config);
+        let hotkey = "abcd1234567890abcdef";
+
+        // First 5 requests should be allowed
+        for i in 0..5 {
+            let (allowed, remaining) = protection.check_rate_limit_by_hotkey(hotkey);
+            assert!(allowed, "Request {} should be allowed", i);
+            assert_eq!(remaining, 4 - i as u32, "Remaining quota mismatch at {}", i);
+        }
+
+        // 6th request should be denied
+        let (allowed, remaining) = protection.check_rate_limit_by_hotkey(hotkey);
+        assert!(!allowed, "6th request should be denied");
+        assert_eq!(remaining, 0);
+    }
+
+    #[test]
+    fn test_rate_limit_by_hotkey_different_hotkeys() {
+        let config = ProtectionConfig {
+            rate_limit: 3,
+            rate_limiting: true,
+            ..Default::default()
+        };
+        let protection = NetworkProtection::new(config);
+
+        // Each hotkey gets its own quota
+        for _ in 0..3 {
+            let (allowed, _) = protection.check_rate_limit_by_hotkey("hotkey1_abc");
+            assert!(allowed);
+        }
+        // hotkey1 exhausted
+        let (allowed, _) = protection.check_rate_limit_by_hotkey("hotkey1_abc");
+        assert!(!allowed);
+
+        // hotkey2 should still have full quota
+        for _ in 0..3 {
+            let (allowed, _) = protection.check_rate_limit_by_hotkey("hotkey2_def");
+            assert!(allowed);
+        }
+    }
+
+    #[test]
+    fn test_rate_limit_bypasses_peer_change() {
+        let config = ProtectionConfig {
+            rate_limit: 3,
+            rate_limiting: true,
+            ..Default::default()
+        };
+        let protection = NetworkProtection::new(config);
+        let hotkey = "attacker_hotkey_12345";
+
+        // Exhaust rate limit
+        for _ in 0..3 {
+            let (allowed, _) = protection.check_rate_limit_by_hotkey(hotkey);
+            assert!(allowed);
+        }
+
+        // Now rate limited
+        let (allowed, _) = protection.check_rate_limit_by_hotkey(hotkey);
+        assert!(!allowed, "Should be rate limited");
+
+        // Even if attacker tries with same hotkey (from different peer), still limited
+        let (allowed, _) = protection.check_rate_limit_by_hotkey(hotkey);
+        assert!(
+            !allowed,
+            "Changing peer_id should not bypass hotkey rate limit"
+        );
+    }
+
+    #[test]
+    fn test_hotkey_blacklist() {
+        let protection = NetworkProtection::with_defaults();
+        let hotkey = "malicious_hotkey_123";
+
+        // Initially not blacklisted
+        assert!(!protection.is_hotkey_blacklisted(hotkey));
+
+        // Blacklist
+        protection.blacklist_hotkey(hotkey, Duration::from_secs(10), "Malicious behavior".into());
+        assert!(protection.is_hotkey_blacklisted(hotkey));
+
+        // Rate limit check should fail for blacklisted hotkey
+        let (allowed, _) = protection.check_rate_limit_by_hotkey(hotkey);
+        assert!(!allowed, "Blacklisted hotkey should be denied");
+
+        // Unblacklist
+        protection.unblacklist_hotkey(hotkey);
+        assert!(!protection.is_hotkey_blacklisted(hotkey));
+    }
+
+    #[test]
+    fn test_blacklist_disconnects_hotkey() {
+        let protection = NetworkProtection::with_defaults();
+        let hotkey = "validator_hotkey_abc";
+        let peer = "peer123";
+
+        // Connect validator
+        protection.check_hotkey_connection(hotkey, peer, None);
+        assert!(protection.is_hotkey_connected(hotkey));
+
+        // Blacklist should disconnect
+        protection.blacklist_hotkey(hotkey, Duration::from_secs(60), "Banned".into());
+        assert!(!protection.is_hotkey_connected(hotkey));
+        assert!(protection.is_hotkey_blacklisted(hotkey));
+    }
+
+    #[test]
+    fn test_stats_includes_hotkey_data() {
+        let protection = NetworkProtection::with_defaults();
+
+        // Connect some validators
+        protection.check_hotkey_connection("hk1", "p1", None);
+        protection.check_hotkey_connection("hk2", "p2", None);
+
+        // Trigger some rate limit checks
+        protection.check_rate_limit_by_hotkey("hk1");
+        protection.check_rate_limit_by_hotkey("hk3");
+
+        // Blacklist one
+        protection.blacklist_hotkey("hk4", Duration::from_secs(60), "test".into());
+
+        let stats = protection.stats();
+        assert_eq!(stats.connected_validators, 2);
+        assert_eq!(stats.hotkey_rate_limiters, 2); // hk1 and hk3
+        assert_eq!(stats.blacklisted_hotkeys, 1);
     }
 }

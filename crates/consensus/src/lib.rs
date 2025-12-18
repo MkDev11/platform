@@ -28,11 +28,13 @@
 pub mod governance_integration;
 pub mod pbft;
 pub mod stake_governance;
+pub mod stake_weighted_pbft;
 pub mod state;
 pub mod types;
 
 pub use governance_integration::*;
 pub use pbft::*;
 pub use stake_governance::*;
+pub use stake_weighted_pbft::*;
 pub use state::*;
 pub use types::*;

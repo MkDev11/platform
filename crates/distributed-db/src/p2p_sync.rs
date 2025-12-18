@@ -32,6 +32,9 @@
 //! └─────────────────────────────────────────────────────────────┘
 //! ```
 
+use crate::merkle_verification::{
+    StateSyncVerifier, SyncMerkleProof, VerificationResult, VerifiedEntry,
+};
 use crate::DistributedDB;
 use parking_lot::RwLock;
 use platform_core::{Hotkey, Keypair};
@@ -41,7 +44,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// DB Sync message types (sent over P2P gossip)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,12 +82,43 @@ pub enum DBSyncMessage {
     },
 }
 
-/// Single DB entry for sync
+/// Single DB entry for sync (legacy, kept for compatibility)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DBEntry {
     pub collection: String,
     pub key: Vec<u8>,
     pub value: Vec<u8>,
+}
+
+/// DB entry with merkle proof for verified sync
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifiedDBEntry {
+    pub collection: String,
+    pub key: Vec<u8>,
+    pub value: Vec<u8>,
+    pub proof: SyncMerkleProof,
+}
+
+impl From<VerifiedEntry> for VerifiedDBEntry {
+    fn from(entry: VerifiedEntry) -> Self {
+        Self {
+            collection: entry.collection,
+            key: entry.key,
+            value: entry.value,
+            proof: entry.proof,
+        }
+    }
+}
+
+impl From<VerifiedDBEntry> for VerifiedEntry {
+    fn from(entry: VerifiedDBEntry) -> Self {
+        Self {
+            collection: entry.collection,
+            key: entry.key,
+            value: entry.value,
+            proof: entry.proof,
+        }
+    }
 }
 
 /// Peer state info
@@ -334,22 +368,83 @@ impl DBSyncManager {
                 entries,
                 block_number,
             } => {
-                // Apply received entries
-                let count = entries.len();
+                // SECURITY: Verify each entry using merkle proofs
+                let mut verifier = StateSyncVerifier::new(state_root);
+                let total_entries = entries.len();
+                let mut verified_count = 0;
+                let mut rejected_count = 0;
+
                 for entry in entries {
-                    if let Err(e) = self.db.put(&entry.collection, &entry.key, &entry.value) {
-                        warn!("Failed to apply sync entry: {}", e);
+                    // Convert to VerifiedEntry for verification
+                    // Note: Legacy entries without proof are rejected for security
+                    let verified_entry = VerifiedEntry {
+                        collection: entry.collection.clone(),
+                        key: entry.key.clone(),
+                        value: entry.value.clone(),
+                        // Legacy entries get empty proof - will fail verification
+                        proof: SyncMerkleProof {
+                            leaf_hash: crate::merkle_verification::hash_entry(
+                                &entry.collection,
+                                &entry.key,
+                                &entry.value,
+                            ),
+                            path: vec![],
+                        },
+                    };
+
+                    // Only apply verified entries
+                    match verifier.verify(&verified_entry) {
+                        VerificationResult::Valid => {
+                            if let Err(e) = self.db.put(&entry.collection, &entry.key, &entry.value)
+                            {
+                                warn!("Failed to apply verified sync entry: {}", e);
+                            } else {
+                                verified_count += 1;
+                            }
+                        }
+                        result => {
+                            rejected_count += 1;
+                            warn!(
+                                "SECURITY: Rejected sync entry from {} - merkle verification failed: {:?}",
+                                from_hotkey.to_hex()[..16].to_string(),
+                                result
+                            );
+                        }
+                    }
+                }
+
+                // Log security status
+                if rejected_count > 0 {
+                    error!(
+                        "SECURITY ALERT: Rejected {}/{} entries from peer {} due to invalid merkle proofs",
+                        rejected_count,
+                        total_entries,
+                        from_hotkey.to_hex()[..16].to_string()
+                    );
+
+                    // If majority rejected, the peer may be malicious
+                    if rejected_count > total_entries / 2 {
+                        let _ = self.event_tx.send(DBSyncEvent::SyncFailed {
+                            hotkey: from_hotkey.clone(),
+                            error: format!(
+                                "Majority of entries ({}/{}) failed merkle verification",
+                                rejected_count, total_entries
+                            ),
+                        });
+                        return Ok(None);
                     }
                 }
 
                 let _ = self.event_tx.send(DBSyncEvent::SyncCompleted {
                     hotkey: from_hotkey.clone(),
-                    entries_synced: count,
+                    entries_synced: verified_count,
                 });
 
                 info!(
-                    "Synced {} entries from peer, new state root: {}",
-                    count,
+                    "Synced {}/{} verified entries from peer (rejected: {}), new state root: {}",
+                    verified_count,
+                    total_entries,
+                    rejected_count,
                     hex::encode(&self.db.state_root()[..8])
                 );
 
