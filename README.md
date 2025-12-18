@@ -369,6 +369,17 @@ docker compose up -d
 
 The validator will auto-connect to `bootnode.platform.network` and sync.
 
+## Hardware Requirements
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| **CPU** | 4 vCPU | 8 vCPU |
+| **RAM** | 16 GB | 32 GB |
+| **Storage** | 100 GB SSD | 200 GB NVMe |
+| **Network** | 100 Mbps | 1 Gbps |
+
+> **Note**: Hardware requirements may increase over time as more challenges are added to the network. Each challenge runs in its own Docker container and may have specific resource needs. Monitor your validator's resource usage and scale accordingly.
+
 ## Network Requirements
 
 **Port 9000/tcp must be open** for P2P communication.
