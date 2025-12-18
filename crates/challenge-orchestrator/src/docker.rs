@@ -349,11 +349,14 @@ impl DockerClient {
             .and_then(|binding| binding.host_port)
             .unwrap_or_else(|| "8080".to_string());
 
-        let endpoint = format!("http://127.0.0.1:{}", port);
+        // Use container name for endpoint when running in Docker network
+        // This allows validator containers to reach challenge containers
+        let endpoint = format!("http://{}:8080", container_name);
 
         info!(
             container_id = %container_id,
             endpoint = %endpoint,
+            host_port = %port,
             "Challenge container started"
         );
 
