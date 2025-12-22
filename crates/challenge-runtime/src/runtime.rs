@@ -349,18 +349,24 @@ impl ChallengeRuntime {
             // Calculate weights from this challenge
             match challenge.calculate_weights(&ctx).await {
                 Ok(weights) => {
+                    // Get emission weight from challenge (fraction of total emissions)
+                    let emission_weight = challenge.emission_weight();
+
                     info!(
-                        "Challenge {} -> mechanism {}: {} weights",
+                        "Challenge {} -> mechanism {}: {} weights, {}% emission",
                         challenge_id,
                         mechanism_id,
-                        weights.len()
+                        weights.len(),
+                        (emission_weight * 100.0).round()
                     );
 
-                    // Submit to mechanism weight manager
+                    // Submit to mechanism weight manager with emission scaling
+                    // Remaining weight (1.0 - emission_weight) goes to UID 0 (burn)
                     self.mechanism_weights.write().submit_weights(
                         challenge_id,
                         mechanism_id,
                         weights,
+                        emission_weight,
                     );
 
                     if !collected_mechanisms.contains(&mechanism_id) {

@@ -2,11 +2,22 @@
 //!
 //! Groups weights from multiple challenges by mechanism_id for batch submission to Bittensor.
 //! Each challenge is mapped to a mechanism (1:1 relationship).
+//!
+//! Weight Distribution:
+//! - Each challenge has an emission_weight (0.0 - 1.0) defining its share of total emissions
+//! - Challenge scores are passed through as-is (no normalization/manipulation)
+//! - Remaining weight (1.0 - emission_weight) goes to UID 0 (burn address)
 
 use parking_lot::RwLock;
 use platform_challenge_sdk::{ChallengeId, WeightAssignment};
 use std::collections::HashMap;
 use tracing::{debug, info};
+
+/// UID 0 is the burn address - receives unused emission weight
+pub const BURN_UID: u16 = 0;
+
+/// Maximum weight value for Bittensor
+pub const MAX_WEIGHT: u16 = 65535;
 
 /// Weight data for a single mechanism
 #[derive(Clone, Debug)]
@@ -21,43 +32,87 @@ pub struct MechanismWeights {
     pub weights: Vec<u16>,
     /// Original float weights for reference
     pub raw_weights: Vec<WeightAssignment>,
+    /// Emission weight for this challenge (0.0 - 1.0)
+    pub emission_weight: f64,
 }
 
 impl MechanismWeights {
+    /// Create new MechanismWeights with emission-based distribution
+    /// 
+    /// - emission_weight: fraction of total emissions this challenge controls (0.0 - 1.0)
+    /// - assignments: raw scores from challenge (will be scaled by emission_weight)
+    /// - Remaining weight goes to UID 0 (burn)
     pub fn new(
         mechanism_id: u8,
         challenge_id: ChallengeId,
         assignments: Vec<WeightAssignment>,
+        emission_weight: f64,
     ) -> Self {
-        let (uids, weights) = Self::convert_to_bittensor_format(&assignments);
+        let emission_weight = emission_weight.clamp(0.0, 1.0);
+        let (uids, weights) = Self::convert_to_bittensor_format(&assignments, emission_weight);
         Self {
             mechanism_id,
             challenge_id,
             uids,
             weights,
             raw_weights: assignments,
+            emission_weight,
         }
     }
 
-    /// Convert WeightAssignment to Bittensor format (uids: Vec<u16>, weights: Vec<u16>)
-    fn convert_to_bittensor_format(assignments: &[WeightAssignment]) -> (Vec<u16>, Vec<u16>) {
-        // Normalize weights to sum to 65535 (u16 max for Bittensor)
+    /// Convert WeightAssignment to Bittensor format with emission scaling
+    /// 
+    /// Example: emission_weight = 0.1 (10%)
+    /// - Challenge returns [Agent A: 0.6, Agent B: 0.4]
+    /// - After scaling: Agent A: 6%, Agent B: 4%, UID 0: 90%
+    fn convert_to_bittensor_format(
+        assignments: &[WeightAssignment],
+        emission_weight: f64,
+    ) -> (Vec<u16>, Vec<u16>) {
+        if assignments.is_empty() || emission_weight <= 0.0 {
+            // No challenge weights - all to UID 0
+            return (vec![BURN_UID], vec![MAX_WEIGHT]);
+        }
+
+        // Normalize challenge scores to sum to 1.0
         let total: f64 = assignments.iter().map(|a| a.weight).sum();
-
-        if total <= 0.0 || assignments.is_empty() {
-            return (vec![], vec![]);
+        if total <= 0.0 {
+            return (vec![BURN_UID], vec![MAX_WEIGHT]);
         }
 
-        let mut uids = Vec::with_capacity(assignments.len());
-        let mut weights = Vec::with_capacity(assignments.len());
+        let mut uids = Vec::with_capacity(assignments.len() + 1);
+        let mut weights = Vec::with_capacity(assignments.len() + 1);
+        let mut used_weight: u64 = 0;
 
+        // Add challenge agent weights (scaled by emission_weight)
         for (idx, assignment) in assignments.iter().enumerate() {
-            // Use index as UID (in real implementation, map agent_hash to neuron UID)
-            uids.push(idx as u16);
-            // Normalize to u16 range (0-65535)
-            let normalized = ((assignment.weight / total) * 65535.0).round() as u16;
-            weights.push(normalized);
+            // TODO: Replace idx with actual UID mapping from agent_hash -> neuron UID
+            let uid = (idx + 1) as u16; // Start from 1, UID 0 is reserved for burn
+            
+            // Scale: (score / total) * emission_weight * MAX_WEIGHT
+            let normalized_score = assignment.weight / total;
+            let scaled_weight = (normalized_score * emission_weight * MAX_WEIGHT as f64).round() as u16;
+            
+            if scaled_weight > 0 {
+                uids.push(uid);
+                weights.push(scaled_weight);
+                used_weight += scaled_weight as u64;
+            }
         }
+
+        // Remaining weight goes to UID 0 (burn)
+        let burn_weight = MAX_WEIGHT.saturating_sub(used_weight as u16);
+        if burn_weight > 0 {
+            uids.insert(0, BURN_UID);
+            weights.insert(0, burn_weight);
+        }
+
+        info!(
+            "Weight distribution: {}% to {} agents, {}% to UID 0 (burn)",
+            (emission_weight * 100.0).round(),
+            assignments.len(),
+            ((burn_weight as f64 / MAX_WEIGHT as f64) * 100.0).round()
+        );
 
         (uids, weights)
     }
@@ -99,24 +154,29 @@ impl MechanismWeightManager {
     }
 
     /// Submit weights from a challenge
+    /// 
+    /// - emission_weight: fraction of total emissions this challenge controls (0.0 - 1.0)
+    /// - Remaining weight (1.0 - emission_weight) automatically goes to UID 0 (burn)
     pub fn submit_weights(
         &self,
         challenge_id: ChallengeId,
         mechanism_id: u8,
         weights: Vec<WeightAssignment>,
+        emission_weight: f64,
     ) {
-        let mech_weights = MechanismWeights::new(mechanism_id, challenge_id, weights);
+        let mech_weights = MechanismWeights::new(mechanism_id, challenge_id, weights, emission_weight);
         self.weights.write().insert(mechanism_id, mech_weights);
 
         info!(
-            "Submitted weights for mechanism {} from challenge {:?}: {} agents",
+            "Submitted weights for mechanism {} from challenge {:?}: {} agents, {}% emission",
             mechanism_id,
             challenge_id,
             self.weights
                 .read()
                 .get(&mechanism_id)
                 .map(|w| w.uids.len())
-                .unwrap_or(0)
+                .unwrap_or(0),
+            (emission_weight * 100.0).round()
         );
     }
 
@@ -323,20 +383,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_mechanism_weights_conversion() {
+    fn test_mechanism_weights_with_emission() {
         let assignments = vec![
             WeightAssignment::new("agent1".to_string(), 0.6),
             WeightAssignment::new("agent2".to_string(), 0.4),
         ];
 
-        let mech_weights = MechanismWeights::new(1, ChallengeId::new(), assignments);
+        // 10% emission weight - challenge controls 10% of total emissions
+        let mech_weights = MechanismWeights::new(1, ChallengeId::new(), assignments, 0.1);
 
-        assert_eq!(mech_weights.uids.len(), 2);
-        assert_eq!(mech_weights.weights.len(), 2);
+        // Should have 3 UIDs: UID 0 (burn) + 2 agents
+        assert_eq!(mech_weights.uids.len(), 3);
+        assert_eq!(mech_weights.weights.len(), 3);
 
-        // Check normalization (should sum close to 65535)
+        // UID 0 should be first (burn address)
+        assert_eq!(mech_weights.uids[0], BURN_UID);
+
+        // Weights should sum to MAX_WEIGHT (65535)
         let sum: u32 = mech_weights.weights.iter().map(|w| *w as u32).sum();
-        assert!((65530..=65540).contains(&sum)); // Allow small rounding error
+        assert!((65530..=65540).contains(&sum), "Sum should be ~65535, got {}", sum);
+
+        // UID 0 should get ~90% (since emission_weight is 10%)
+        let burn_weight = mech_weights.weights[0] as f64 / MAX_WEIGHT as f64;
+        assert!(burn_weight > 0.89 && burn_weight < 0.91, "Burn should be ~90%, got {}", burn_weight * 100.0);
+    }
+
+    #[test]
+    fn test_mechanism_weights_full_emission() {
+        let assignments = vec![
+            WeightAssignment::new("agent1".to_string(), 0.6),
+            WeightAssignment::new("agent2".to_string(), 0.4),
+        ];
+
+        // 100% emission weight - challenge controls all emissions
+        let mech_weights = MechanismWeights::new(1, ChallengeId::new(), assignments, 1.0);
+
+        // Should have 2 UIDs (no burn needed when emission is 100%)
+        // Actually burn_weight = 0 so it won't be added
+        assert!(mech_weights.uids.len() >= 2);
+
+        // Weights should sum to MAX_WEIGHT
+        let sum: u32 = mech_weights.weights.iter().map(|w| *w as u32).sum();
+        assert!((65530..=65540).contains(&sum), "Sum should be ~65535, got {}", sum);
     }
 
     #[test]
@@ -352,8 +440,9 @@ mod tests {
         let weights1 = vec![WeightAssignment::new("a".to_string(), 0.5)];
         let weights2 = vec![WeightAssignment::new("b".to_string(), 0.5)];
 
-        manager.submit_weights(challenge1, 1, weights1);
-        manager.submit_weights(challenge2, 2, weights2);
+        // Each challenge gets 50% emission
+        manager.submit_weights(challenge1, 1, weights1, 0.5);
+        manager.submit_weights(challenge2, 2, weights2, 0.5);
 
         let all_weights = manager.get_all_mechanism_weights();
         assert_eq!(all_weights.len(), 2);
@@ -368,6 +457,7 @@ mod tests {
             1,
             ChallengeId::new(),
             vec![WeightAssignment::new("agent".to_string(), 1.0)],
+            1.0, // 100% emission
         );
 
         let salt = b"test_salt".to_vec();
@@ -376,5 +466,15 @@ mod tests {
         manager.commit(commitment);
         assert!(manager.reveal(1, weights).is_ok());
         assert!(manager.all_revealed());
+    }
+
+    #[test]
+    fn test_empty_weights_go_to_burn() {
+        let mech_weights = MechanismWeights::new(1, ChallengeId::new(), vec![], 0.5);
+
+        // All weight should go to UID 0
+        assert_eq!(mech_weights.uids.len(), 1);
+        assert_eq!(mech_weights.uids[0], BURN_UID);
+        assert_eq!(mech_weights.weights[0], MAX_WEIGHT);
     }
 }

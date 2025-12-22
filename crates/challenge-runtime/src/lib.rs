@@ -33,6 +33,7 @@ pub mod runtime;
 pub mod scheduler;
 
 // Host-side components for WASM challenges
+// NOTE: anti_cheat_weights is deprecated - kept for reference only
 pub mod anti_cheat_weights;
 pub mod docker_runner;
 pub mod epoch_sync;
@@ -52,10 +53,8 @@ pub use runtime::*;
 pub use scheduler::*;
 
 // Host functions and components
-pub use anti_cheat_weights::{
-    AgentRanking, AntiCheatConfig, AntiCheatWeightCalculator, CalculationStats, FlagReason,
-    FlaggedValidator, ValidatorScore, WeightCalculationResult as AntiCheatResult,
-};
+// NOTE: anti_cheat_weights exports removed - module is deprecated
+// Use emission-based weight distribution instead (see mechanism_weights.rs)
 pub use docker_runner::{DockerRunner, DockerRunnerConfig};
 pub use epoch_sync::{EpochEvent, EpochInfo, EpochPhase, EpochSync, EpochSyncConfig};
 pub use host_functions::{
