@@ -808,6 +808,23 @@ async fn main() -> Result<()> {
                                     let mut added = 0;
                                     let mut state = chain_state.write();
 
+                                    // Debug: collect top stakes for logging
+                                    let mut top_stakes: Vec<(u64, u128, u128, u128)> = metagraph.neurons
+                                        .iter()
+                                        .map(|(uid, n)| (*uid, n.stake, n.root_stake, n.stake.saturating_add(n.root_stake)))
+                                        .collect();
+                                    top_stakes.sort_by(|a, b| b.3.cmp(&a.3));
+                                    
+                                    info!("Top 10 neurons by effective stake:");
+                                    for (uid, alpha, root, total) in top_stakes.iter().take(10) {
+                                        info!("  UID {}: alpha={:.2} TAO, root={:.2} TAO, total={:.2} TAO",
+                                            uid,
+                                            *alpha as f64 / 1e9,
+                                            *root as f64 / 1e9,
+                                            *total as f64 / 1e9
+                                        );
+                                    }
+
                                     for neuron in metagraph.neurons.values() {
                                         // Convert AccountId32 hotkey to our Hotkey type
                                         let hotkey_bytes: &[u8; 32] = neuron.hotkey.as_ref();
