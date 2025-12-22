@@ -158,15 +158,66 @@ struct Args {
     health_check_interval: u64,
 }
 
+/// Initialize Sentry error monitoring
+/// Enabled by default - can be disabled by setting SENTRY_DSN="" or overridden with custom DSN
+fn init_sentry() -> Option<sentry::ClientInitGuard> {
+    // Default DSN for Platform Network error monitoring
+    const DEFAULT_DSN: &str = "https://56a006330cecdc120766a602a5091eb9@o4510579978272768.ingest.us.sentry.io/4510579979911168";
+
+    // Allow override or disable via env var (empty string disables)
+    let dsn = std::env::var("SENTRY_DSN").unwrap_or_else(|_| DEFAULT_DSN.to_string());
+
+    if dsn.is_empty() {
+        return None;
+    }
+
+    let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string());
+
+    let guard = sentry::init((
+        dsn,
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            environment: Some(environment.into()),
+            // SECURITY: Do not send PII (IP addresses, headers, etc.)
+            send_default_pii: false,
+            // Only sample 100% of errors, 10% of transactions
+            sample_rate: 1.0,
+            traces_sample_rate: 0.1,
+            // Attach stacktraces to all events
+            attach_stacktrace: true,
+            ..Default::default()
+        },
+    ));
+
+    tracing::info!("Sentry error monitoring initialized");
+    Some(guard)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize logging
-    tracing_subscriber::fmt()
+    // Initialize Sentry error monitoring (optional - requires SENTRY_DSN env var)
+    // SECURITY: DSN must be provided via environment variable, never hardcode
+    let _sentry_guard = init_sentry();
+
+    // Initialize logging with Sentry integration
+    let subscriber = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "info,platform=debug".into()),
         )
-        .init();
+        .finish();
+
+    // Add Sentry layer to capture ERROR and WARN level events
+    use tracing_subscriber::layer::SubscriberExt;
+    let subscriber =
+        subscriber.with(
+            sentry_tracing::layer().event_filter(|metadata| match *metadata.level() {
+                tracing::Level::ERROR => sentry_tracing::EventFilter::Event,
+                tracing::Level::WARN => sentry_tracing::EventFilter::Breadcrumb,
+                _ => sentry_tracing::EventFilter::Ignore,
+            }),
+        );
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
 
     let args = Args::parse();
 

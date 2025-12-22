@@ -62,6 +62,10 @@ sled = "0.34"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Error monitoring (optional - enabled via SENTRY_DSN env var)
+sentry = { version = "0.35", default-features = false, features = ["backtrace", "contexts", "tracing", "reqwest", "rustls"] }
+sentry-tracing = "0.35"
+
 # Error handling
 anyhow = "1.0"
 thiserror = "2.0"

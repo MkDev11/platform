@@ -37,6 +37,8 @@ reqwest = { version = "0.12", features = ["json"] }
 
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+sentry = { workspace = true }
+sentry-tracing = { workspace = true }
 
 clap = { workspace = true, features = ["env"] }
 anyhow = { workspace = true }
