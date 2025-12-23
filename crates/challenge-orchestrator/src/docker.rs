@@ -304,7 +304,10 @@ impl DockerClient {
         // Create persistent data directory for challenge state (survives restarts)
         let challenge_data_dir = format!("/tmp/platform-challenges/{}/data", container_name);
         if let Err(e) = std::fs::create_dir_all(&challenge_data_dir) {
-            warn!("Failed to create challenge data dir {}: {}", challenge_data_dir, e);
+            warn!(
+                "Failed to create challenge data dir {}: {}",
+                challenge_data_dir, e
+            );
         }
 
         // Build host config with resource limits
@@ -320,7 +323,7 @@ impl DockerClient {
                 "/var/run/docker.sock:/var/run/docker.sock:rw".to_string(),
                 "/tmp/platform-tasks:/app/data/tasks:rw".to_string(), // Override internal tasks
                 "/tmp/platform-tasks:/tmp/platform-tasks:rw".to_string(), // For DinD path mapping
-                format!("{}:/data:rw", challenge_data_dir), // Persistent challenge state
+                format!("{}:/data:rw", challenge_data_dir),           // Persistent challenge state
             ]),
             ..Default::default()
         };

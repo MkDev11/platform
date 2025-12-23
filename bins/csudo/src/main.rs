@@ -1260,14 +1260,15 @@ async fn main() -> Result<()> {
             }
         },
 
-        Commands::Refresh(cmd) => match cmd {
-            RefreshCommands::All => {
-                println!(
-                    "{}",
-                    "Requesting all validators to re-pull and restart challenges..."
-                        .bright_yellow()
-                );
-                if Confirm::with_theme(&ColorfulTheme::default())
+        Commands::Refresh(cmd) => {
+            match cmd {
+                RefreshCommands::All => {
+                    println!(
+                        "{}",
+                        "Requesting all validators to re-pull and restart challenges..."
+                            .bright_yellow()
+                    );
+                    if Confirm::with_theme(&ColorfulTheme::default())
                     .with_prompt("This will restart all challenge containers on all validators. Continue?")
                     .default(true)
                     .interact()?
@@ -1279,53 +1280,54 @@ async fn main() -> Result<()> {
                     )
                     .await?;
                 }
+                }
+                RefreshCommands::Challenge { id } => {
+                    let state = fetch_chain_state(&args.rpc).await?;
+
+                    let challenge = if let Some(id) = id {
+                        state
+                            .challenges
+                            .iter()
+                            .find(|c| c.id.starts_with(&id))
+                            .ok_or_else(|| anyhow::anyhow!("Challenge not found: {}", id))?
+                    } else {
+                        if state.challenges.is_empty() {
+                            println!("{}", "No challenges to refresh.".yellow());
+                            return Ok(());
+                        }
+
+                        let options: Vec<String> = state
+                            .challenges
+                            .iter()
+                            .map(|c| format!("{} ({})", c.name, &c.id[..8]))
+                            .collect();
+
+                        let selection = FuzzySelect::with_theme(&ColorfulTheme::default())
+                            .with_prompt("Select challenge to refresh")
+                            .items(&options)
+                            .interact()?;
+
+                        &state.challenges[selection]
+                    };
+
+                    println!(
+                        "Refreshing challenge: {} ({})",
+                        challenge.name.green(),
+                        &challenge.id[..8]
+                    );
+
+                    let challenge_id = ChallengeId(uuid::Uuid::parse_str(&challenge.id)?);
+                    submit_action(
+                        &args.rpc,
+                        &keypair,
+                        SudoAction::RefreshChallenges {
+                            challenge_id: Some(challenge_id),
+                        },
+                    )
+                    .await?;
+                }
             }
-            RefreshCommands::Challenge { id } => {
-                let state = fetch_chain_state(&args.rpc).await?;
-
-                let challenge = if let Some(id) = id {
-                    state
-                        .challenges
-                        .iter()
-                        .find(|c| c.id.starts_with(&id))
-                        .ok_or_else(|| anyhow::anyhow!("Challenge not found: {}", id))?
-                } else {
-                    if state.challenges.is_empty() {
-                        println!("{}", "No challenges to refresh.".yellow());
-                        return Ok(());
-                    }
-
-                    let options: Vec<String> = state
-                        .challenges
-                        .iter()
-                        .map(|c| format!("{} ({})", c.name, &c.id[..8]))
-                        .collect();
-
-                    let selection = FuzzySelect::with_theme(&ColorfulTheme::default())
-                        .with_prompt("Select challenge to refresh")
-                        .items(&options)
-                        .interact()?;
-
-                    &state.challenges[selection]
-                };
-
-                println!(
-                    "Refreshing challenge: {} ({})",
-                    challenge.name.green(),
-                    &challenge.id[..8]
-                );
-
-                let challenge_id = ChallengeId(uuid::Uuid::parse_str(&challenge.id)?);
-                submit_action(
-                    &args.rpc,
-                    &keypair,
-                    SudoAction::RefreshChallenges {
-                        challenge_id: Some(challenge_id),
-                    },
-                )
-                .await?;
-            }
-        },
+        }
     }
 
     Ok(())

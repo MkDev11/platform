@@ -110,7 +110,7 @@ impl DataCategory {
     /// Default TTL in blocks (None = permanent)
     pub fn default_ttl(&self) -> Option<u64> {
         match self {
-            DataCategory::ExecutionLog => Some(10_000),  // ~1 day
+            DataCategory::ExecutionLog => Some(10_000),   // ~1 day
             DataCategory::AgentSubmission => Some(5_000), // Until reveal
             _ => None,                                    // Permanent
         }
@@ -376,7 +376,11 @@ impl ProposalState {
     }
 
     /// Check if consensus is reached
-    pub fn check_consensus(&mut self, total_stake: u64, current_block: u64) -> Option<ProposalStatus> {
+    pub fn check_consensus(
+        &mut self,
+        total_stake: u64,
+        current_block: u64,
+    ) -> Option<ProposalStatus> {
         if self.consensus_reached {
             return self.final_status.clone();
         }
@@ -458,7 +462,8 @@ pub trait ProposalValidator: Send + Sync {
     /// Validate a vote
     ///
     /// Called when a vote is received. Usually just signature verification.
-    async fn validate_vote(&self, vote: &ProposalVote, proposal: &DataProposal) -> ValidationResult;
+    async fn validate_vote(&self, vote: &ProposalVote, proposal: &DataProposal)
+        -> ValidationResult;
 
     /// Called when consensus is reached
     ///
@@ -526,9 +531,10 @@ impl CommittedData {
             proposed_at_block: proposal.proposed_at_block,
             committed_at_block: state.consensus_block.unwrap_or(proposal.proposed_at_block),
             epoch: proposal.epoch,
-            expires_at_block: proposal.category.default_ttl().map(|ttl| {
-                state.consensus_block.unwrap_or(proposal.proposed_at_block) + ttl
-            }),
+            expires_at_block: proposal
+                .category
+                .default_ttl()
+                .map(|ttl| state.consensus_block.unwrap_or(proposal.proposed_at_block) + ttl),
             version: 1,
         }
     }
@@ -686,10 +692,7 @@ impl ChainStorageState {
 
         self.pending_proposals
             .insert(id, ProposalState::new(proposal));
-        self.proposer_index
-            .entry(proposer)
-            .or_default()
-            .push(id);
+        self.proposer_index.entry(proposer).or_default().push(id);
 
         true
     }
@@ -741,11 +744,7 @@ impl ChainStorageState {
     pub fn get_by_category(&self, category: DataCategory) -> Vec<&CommittedData> {
         self.category_index
             .get(&category)
-            .map(|keys| {
-                keys.iter()
-                    .filter_map(|k| self.get(category, k))
-                    .collect()
-            })
+            .map(|keys| keys.iter().filter_map(|k| self.get(category, k)).collect())
             .unwrap_or_default()
     }
 
@@ -1066,7 +1065,7 @@ mod tests {
 
         let mut state = ProposalState::new(proposal.clone());
         let total_stake = 3_000_000_000_000u64; // 3000 TAO
-        // Required: 3000 * 0.67 = 2010 TAO
+                                                // Required: 3000 * 0.67 = 2010 TAO
 
         // Add first vote (1000 TAO) - not enough (1000 < 2010)
         let vote1 = ProposalVote::accept(

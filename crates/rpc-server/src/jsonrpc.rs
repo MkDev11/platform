@@ -1437,9 +1437,8 @@ impl RpcHandler {
                         match challenge_id {
                             Some(id) => {
                                 // Refresh specific challenge - get config and send update
-                                let config = {
-                                    self.chain_state.read().challenge_configs.get(id).cloned()
-                                };
+                                let config =
+                                    { self.chain_state.read().challenge_configs.get(id).cloned() };
                                 if let Some(config) = config {
                                     if let Err(e) = tx.send(OrchestratorCommand::Update(config)) {
                                         warn!("Failed to send refresh to orchestrator: {}", e);

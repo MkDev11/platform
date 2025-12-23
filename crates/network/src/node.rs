@@ -143,7 +143,10 @@ impl NetworkNode {
             info!("Using deterministic peer ID from validator keypair");
         }
         if let Some(hk) = hotkey {
-            info!("Including hotkey in identify: {}...", &hk[..16.min(hk.len())]);
+            info!(
+                "Including hotkey in identify: {}...",
+                &hk[..16.min(hk.len())]
+            );
         }
 
         let behaviour = MiniChainBehaviour::with_hotkey(&local_key, config.enable_mdns, hotkey)?;
@@ -430,10 +433,11 @@ impl NetworkNode {
                 // Extract hotkey from agent_version if present
                 // Format: "platform-validator/1.0.0/HOTKEY_HEX"
                 let hotkey = info.agent_version.split('/').nth(2).map(String::from);
-                
+
                 info!(
                     "Identify received from {}: agent={}, hotkey={:?}",
-                    peer_id, info.agent_version,
+                    peer_id,
+                    info.agent_version,
                     hotkey.as_ref().map(|h| &h[..16.min(h.len())])
                 );
 

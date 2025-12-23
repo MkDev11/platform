@@ -82,8 +82,9 @@ impl MiniChainBehaviour {
             Some(hk) => format!("platform-validator/1.0.0/{}", hk),
             None => "platform-validator/1.0.0".to_string(),
         };
-        let identify_config = identify::Config::new("/platform/id/1.0.0".into(), local_key.public())
-            .with_agent_version(agent_version);
+        let identify_config =
+            identify::Config::new("/platform/id/1.0.0".into(), local_key.public())
+                .with_agent_version(agent_version);
         let identify = identify::Behaviour::new(identify_config);
 
         // Request-response for sync

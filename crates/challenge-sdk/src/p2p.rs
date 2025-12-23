@@ -223,56 +223,38 @@ pub enum P2PError {
 
 /// Decrypt an API key that was encrypted for this validator
 ///
-/// Uses X25519 key exchange + ChaCha20-Poly1305 (same scheme as term-challenge)
+/// Uses HKDF key derivation + ChaCha20-Poly1305 (sr25519 compatible)
+/// Note: For sr25519, we derive the key from public key + salt (stored in ephemeral_public_key field)
 pub fn decrypt_api_key(
     encrypted: &EncryptedApiKey,
-    validator_secret: &[u8; 32],
+    validator_pubkey: &[u8; 32],
 ) -> Result<String, P2PError> {
     use chacha20poly1305::{
         aead::{Aead, KeyInit},
         ChaCha20Poly1305, Nonce,
     };
     use sha2::{Digest, Sha256};
-    use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
     const NONCE_SIZE: usize = 12;
 
-    // Convert ed25519 private key to X25519 using SHA-512 clamping
-    fn ed25519_to_x25519_private(ed25519_secret: &[u8; 32]) -> [u8; 32] {
+    // Derive encryption key from validator's public key and salt
+    fn derive_encryption_key(validator_pubkey: &[u8; 32], salt: &[u8]) -> [u8; 32] {
         let mut hasher = Sha256::new();
-        hasher.update(b"ed25519-to-x25519");
-        hasher.update(ed25519_secret);
-        let hash = hasher.finalize();
-        let mut x25519_key: [u8; 32] = hash.into();
-        // Clamp for X25519
-        x25519_key[0] &= 248;
-        x25519_key[31] &= 127;
-        x25519_key[31] |= 64;
-        x25519_key
+        hasher.update(b"term-challenge-api-key-v2");
+        hasher.update(validator_pubkey);
+        hasher.update(salt);
+        let result = hasher.finalize();
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&result);
+        key
     }
 
-    // Convert validator's ed25519 private key to X25519
-    let x25519_secret_bytes = ed25519_to_x25519_private(validator_secret);
-    let validator_x25519 = StaticSecret::from(x25519_secret_bytes);
-
-    // Parse ephemeral public key
-    let ephemeral_bytes: [u8; 32] = hex::decode(&encrypted.ephemeral_public_key)
-        .map_err(|e| P2PError::DecryptionFailed(format!("Invalid ephemeral key hex: {}", e)))?
-        .try_into()
-        .map_err(|_| P2PError::DecryptionFailed("Invalid ephemeral key length".to_string()))?;
-    let ephemeral_public = X25519PublicKey::from(ephemeral_bytes);
-
-    // Perform X25519 key exchange
-    let shared_secret = validator_x25519.diffie_hellman(&ephemeral_public);
+    // Parse salt from ephemeral_public_key field (repurposed for sr25519)
+    let salt = hex::decode(&encrypted.ephemeral_public_key)
+        .map_err(|e| P2PError::DecryptionFailed(format!("Invalid salt hex: {}", e)))?;
 
     // Derive decryption key
-    let validator_x25519_public = X25519PublicKey::from(&validator_x25519);
-    let mut hasher = Sha256::new();
-    hasher.update(b"term-challenge-api-key-encryption");
-    hasher.update(shared_secret.as_bytes());
-    hasher.update(ephemeral_bytes);
-    hasher.update(validator_x25519_public.as_bytes());
-    let decryption_key = hasher.finalize();
+    let decryption_key = derive_encryption_key(validator_pubkey, &salt);
 
     // Parse nonce
     let nonce_bytes: [u8; NONCE_SIZE] = hex::decode(&encrypted.nonce)
@@ -315,18 +297,24 @@ pub fn verify_signature(message: &ChallengeP2PMessage, signature: &[u8], signer:
         return false;
     };
 
-    // Verify using ed25519
-    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    // Verify using sr25519 (Substrate/Bittensor standard)
+    use sp_core::{sr25519, Pair};
 
-    let Ok(verifying_key) = VerifyingKey::from_bytes(signer.as_bytes()) else {
+    let signer_bytes = signer.as_bytes();
+    if signer_bytes.len() != 32 {
         return false;
-    };
+    }
+    let mut pubkey_bytes = [0u8; 32];
+    pubkey_bytes.copy_from_slice(signer_bytes);
+    let public = sr25519::Public::from_raw(pubkey_bytes);
 
-    let Ok(sig) = Signature::from_slice(signature) else {
-        return false;
+    let sig_bytes: [u8; 64] = match signature.try_into() {
+        Ok(b) => b,
+        Err(_) => return false,
     };
+    let sig = sr25519::Signature::from_raw(sig_bytes);
 
-    verifying_key.verify(&data, &sig).is_ok()
+    sr25519::Pair::verify(&sig, &data, &public)
 }
 
 #[cfg(test)]

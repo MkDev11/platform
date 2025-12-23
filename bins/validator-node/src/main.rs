@@ -863,7 +863,7 @@ async fn main() -> Result<()> {
 
                                     let mut skipped_low_stake = 0;
                                     let mut add_failed = 0;
-                                    
+
                                     for neuron in metagraph.neurons.values() {
                                         // Convert AccountId32 hotkey to our Hotkey type
                                         let hotkey_bytes: &[u8; 32] = neuron.hotkey.as_ref();
@@ -873,7 +873,8 @@ async fn main() -> Result<()> {
                                         // Use total_stake from metagraph - this is the ACTUAL stake used in consensus
                                         // It includes: alpha stake + (tao stake * tao_weight)
                                         // The runtime API calculates this including parent inheritance
-                                        let stake_rao = neuron.total_stake.min(u64::MAX as u128) as u64;
+                                        let stake_rao =
+                                            neuron.total_stake.min(u64::MAX as u128) as u64;
 
                                         // ALWAYS cache stake in protection for debugging
                                         // This allows us to show actual stake when rejecting low-stake validators
@@ -915,7 +916,7 @@ async fn main() -> Result<()> {
                                             v.stake = Stake::new(stake_rao);
                                         }
                                     }
-                                    
+
                                     if skipped_low_stake > 0 {
                                         debug!(
                                             "Skipped {} neurons with stake below {} TAO threshold",
@@ -1021,7 +1022,11 @@ async fn main() -> Result<()> {
     let mut network = NetworkNode::with_hotkey(node_config.clone(), Some(&our_hotkey_hex)).await?;
     let mut event_rx = network.take_event_receiver().unwrap();
 
-    info!("Local peer ID: {} (hotkey: {})", network.local_peer_id(), keypair.ss58_address());
+    info!(
+        "Local peer ID: {} (hotkey: {})",
+        network.local_peer_id(),
+        keypair.ss58_address()
+    );
 
     // Start network
     network.start(&node_config).await?;
@@ -1032,7 +1037,8 @@ async fn main() -> Result<()> {
     // Spawn network event loop in a separate task
     tokio::spawn(async move {
         // Bootstrap retry interval - reconnect to bootnode if disconnected
-        let mut bootstrap_retry_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        let mut bootstrap_retry_interval =
+            tokio::time::interval(std::time::Duration::from_secs(30));
         bootstrap_retry_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
@@ -1160,21 +1166,26 @@ async fn main() -> Result<()> {
                             info!("Challenge container '{}' started successfully", config.name);
 
                             // Get actual endpoint from orchestrator and update the endpoints map
-                            let endpoint = if let Some(instance) = orch.get_challenge(&config.challenge_id) {
+                            let endpoint = if let Some(instance) =
+                                orch.get_challenge(&config.challenge_id)
+                            {
                                 instance.endpoint.clone()
                             } else {
                                 // Fallback to constructed URL if instance not found
                                 let container_name = config.name.to_lowercase().replace(' ', "-");
                                 format!("http://challenge-{}:8080", container_name)
                             };
-                            
+
                             // Update endpoints map for HTTP proxying (store by both UUID and name)
                             {
                                 let mut eps = endpoints_for_orch.write();
                                 eps.insert(config.challenge_id.to_string(), endpoint.clone());
                                 eps.insert(config.name.clone(), endpoint.clone());
                             }
-                            info!("Updated endpoint for challenge '{}' ({}): {}", config.name, config.challenge_id, endpoint);
+                            info!(
+                                "Updated endpoint for challenge '{}' ({}): {}",
+                                config.name, config.challenge_id, endpoint
+                            );
 
                             // Discover routes from the container via /.well-known/routes
                             if let Some(ref routes) = routes_map {
@@ -1325,12 +1336,17 @@ async fn main() -> Result<()> {
 
             for config in configs {
                 // Get actual endpoint from orchestrator (includes validator suffix in dev mode)
-                let routes_url = if let Some(instance) = orch_for_discovery.get_challenge(&config.challenge_id) {
+                let routes_url = if let Some(instance) =
+                    orch_for_discovery.get_challenge(&config.challenge_id)
+                {
                     format!("{}/.well-known/routes", instance.endpoint)
                 } else {
                     // Fallback to constructed URL if instance not found
                     let container_name = config.name.to_lowercase().replace(' ', "-");
-                    format!("http://challenge-{}:8080/.well-known/routes", container_name)
+                    format!(
+                        "http://challenge-{}:8080/.well-known/routes",
+                        container_name
+                    )
                 };
 
                 info!(
@@ -1875,7 +1891,7 @@ async fn main() -> Result<()> {
                     NetworkEvent::PeerIdentified { peer_id, hotkey, agent_version } => {
                         let peer_str = peer_id.to_string();
                         let should_validate_stake = protection.config().validate_stake;
-                        
+
                         if let Some(ref hk) = hotkey {
                             // Convert hex hotkey to SS58 for display
                             let ss58 = if let Ok(bytes) = hex::decode(hk) {
@@ -2222,7 +2238,7 @@ async fn main() -> Result<()> {
                                                 let hotkey_bytes: &[u8; 32] = neuron.hotkey.as_ref();
                                                 let hotkey = Hotkey(*hotkey_bytes);
                                                 let hotkey_hex = hotkey.to_hex();
-                                                
+
                                                 // Use total_stake from metagraph (includes parent inheritance + TAO weight)
                                                 let stake_rao = neuron.total_stake.min(u64::MAX as u128) as u64;
 
@@ -2455,14 +2471,22 @@ async fn handle_message(
                             error!("Failed to start challenge container: {}", e);
                         } else {
                             info!("Challenge container started: {}", config.name);
-                            
+
                             // Update endpoints map with actual container endpoint
                             if let Some(endpoints) = challenge_endpoints {
-                                if let Some(instance) = orchestrator.get_challenge(&config.challenge_id) {
+                                if let Some(instance) =
+                                    orchestrator.get_challenge(&config.challenge_id)
+                                {
                                     let mut eps = endpoints.write();
-                                    eps.insert(config.challenge_id.to_string(), instance.endpoint.clone());
+                                    eps.insert(
+                                        config.challenge_id.to_string(),
+                                        instance.endpoint.clone(),
+                                    );
                                     eps.insert(config.name.clone(), instance.endpoint.clone());
-                                    info!("Updated endpoint for challenge '{}': {}", config.name, instance.endpoint);
+                                    info!(
+                                        "Updated endpoint for challenge '{}': {}",
+                                        config.name, instance.endpoint
+                                    );
                                 }
                             }
                         }
@@ -2605,14 +2629,21 @@ async fn handle_message(
                         error!("Failed to start challenge container from P2P: {}", e);
                     } else {
                         info!("Challenge container '{}' started from P2P", config.name);
-                        
+
                         // Update endpoints map with actual container endpoint
                         if let Some(endpoints) = challenge_endpoints {
-                            if let Some(instance) = orchestrator.get_challenge(&config.challenge_id) {
+                            if let Some(instance) = orchestrator.get_challenge(&config.challenge_id)
+                            {
                                 let mut eps = endpoints.write();
-                                eps.insert(config.challenge_id.to_string(), instance.endpoint.clone());
+                                eps.insert(
+                                    config.challenge_id.to_string(),
+                                    instance.endpoint.clone(),
+                                );
                                 eps.insert(config.name.clone(), instance.endpoint.clone());
-                                info!("Updated endpoint for challenge '{}' (P2P): {}", config.name, instance.endpoint);
+                                info!(
+                                    "Updated endpoint for challenge '{}' (P2P): {}",
+                                    config.name, instance.endpoint
+                                );
                             }
                         }
                     }
