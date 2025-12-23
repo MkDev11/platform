@@ -58,6 +58,15 @@ pub enum NetworkEvent {
     /// Peer disconnected
     PeerDisconnected(PeerId),
 
+    /// Peer identified with hotkey (for stake validation)
+    PeerIdentified {
+        peer_id: PeerId,
+        /// Hotkey extracted from agent_version (if present)
+        hotkey: Option<String>,
+        /// Full agent version string
+        agent_version: String,
+    },
+
     /// Message received from gossip
     MessageReceived { from: PeerId, data: Vec<u8> },
 
@@ -111,6 +120,12 @@ pub struct NetworkNode {
 impl NetworkNode {
     /// Create a new network node
     pub async fn new(config: NodeConfig) -> anyhow::Result<Self> {
+        Self::with_hotkey(config, None).await
+    }
+
+    /// Create a new network node with hotkey for identify protocol
+    /// The hotkey is included in agent_version for stake validation
+    pub async fn with_hotkey(config: NodeConfig, hotkey: Option<&str>) -> anyhow::Result<Self> {
         // Use provided seed for deterministic peer ID, or generate random
         let local_key = if let Some(seed) = config.identity_seed {
             // Derive libp2p Ed25519 keypair from seed
@@ -127,8 +142,11 @@ impl NetworkNode {
         if config.identity_seed.is_some() {
             info!("Using deterministic peer ID from validator keypair");
         }
+        if let Some(hk) = hotkey {
+            info!("Including hotkey in identify: {}...", &hk[..16.min(hk.len())]);
+        }
 
-        let behaviour = MiniChainBehaviour::new(&local_key, config.enable_mdns)?;
+        let behaviour = MiniChainBehaviour::with_hotkey(&local_key, config.enable_mdns, hotkey)?;
 
         let swarm = SwarmBuilder::with_existing_identity(local_key)
             .with_tokio()
@@ -409,11 +427,25 @@ impl NetworkNode {
             MiniChainBehaviourEvent::Identify(identify::Event::Received {
                 peer_id, info, ..
             }) => {
-                // When we receive identify info from a peer, learn about their listen addresses
+                // Extract hotkey from agent_version if present
+                // Format: "platform-validator/1.0.0/HOTKEY_HEX"
+                let hotkey = info.agent_version.split('/').nth(2).map(String::from);
+                
                 info!(
-                    "Identify received from {}: {:?}",
-                    peer_id, info.listen_addrs
+                    "Identify received from {}: agent={}, hotkey={:?}",
+                    peer_id, info.agent_version,
+                    hotkey.as_ref().map(|h| &h[..16.min(h.len())])
                 );
+
+                // Emit PeerIdentified event for stake validation
+                let _ = self
+                    .event_tx
+                    .send(NetworkEvent::PeerIdentified {
+                        peer_id,
+                        hotkey,
+                        agent_version: info.agent_version.clone(),
+                    })
+                    .await;
 
                 // Add to gossipsub mesh
                 self.swarm

@@ -28,7 +28,18 @@ pub struct MiniChainBehaviour {
 }
 
 impl MiniChainBehaviour {
+    /// Create new behaviour with optional hotkey for identify protocol
+    /// If hotkey is provided, it will be included in agent_version for stake validation
     pub fn new(local_key: &libp2p::identity::Keypair, enable_mdns: bool) -> anyhow::Result<Self> {
+        Self::with_hotkey(local_key, enable_mdns, None)
+    }
+
+    /// Create new behaviour with hotkey for stake validation
+    pub fn with_hotkey(
+        local_key: &libp2p::identity::Keypair,
+        enable_mdns: bool,
+        hotkey: Option<&str>,
+    ) -> anyhow::Result<Self> {
         // Gossipsub configuration with peer exchange enabled
         // Supports up to 64 validators in the network
         let gossipsub_config = gossipsub::ConfigBuilder::default()
@@ -66,11 +77,14 @@ impl MiniChainBehaviour {
             Toggle::from(None)
         };
 
-        // Identify protocol
-        let identify = identify::Behaviour::new(identify::Config::new(
-            "/platform/id/1.0.0".into(),
-            local_key.public(),
-        ));
+        // Identify protocol - include hotkey in agent_version for stake validation
+        let agent_version = match hotkey {
+            Some(hk) => format!("platform-validator/1.0.0/{}", hk),
+            None => "platform-validator/1.0.0".to_string(),
+        };
+        let identify_config = identify::Config::new("/platform/id/1.0.0".into(), local_key.public())
+            .with_agent_version(agent_version);
+        let identify = identify::Behaviour::new(identify_config);
 
         // Request-response for sync
         let request_response = request_response::cbor::Behaviour::new(

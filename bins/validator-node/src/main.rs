@@ -961,10 +961,12 @@ async fn main() -> Result<()> {
         ..Default::default()
     };
 
-    let mut network = NetworkNode::new(node_config.clone()).await?;
+    // Pass our hotkey to the network for identify protocol (stake validation)
+    let our_hotkey_hex = keypair.hotkey().to_hex();
+    let mut network = NetworkNode::with_hotkey(node_config.clone(), Some(&our_hotkey_hex)).await?;
     let mut event_rx = network.take_event_receiver().unwrap();
 
-    info!("Local peer ID: {}", network.local_peer_id());
+    info!("Local peer ID: {} (hotkey: {})", network.local_peer_id(), keypair.ss58_address());
 
     // Start network
     network.start(&node_config).await?;
@@ -1784,8 +1786,66 @@ async fn main() -> Result<()> {
                             handler.add_peer(peer_str.clone());
                         }
 
-                        info!("Peer connected: {} (stake validation pending)", peer);
-                        // Note: Full stake validation happens when we receive their first signed message
+                        debug!("Peer connected: {} (awaiting identify)", peer);
+                        // Hotkey and stake validation happens in PeerIdentified event
+                    }
+                    NetworkEvent::PeerIdentified { peer_id, hotkey, agent_version } => {
+                        let peer_str = peer_id.to_string();
+                        
+                        if let Some(ref hk) = hotkey {
+                            // Convert hex hotkey to SS58 for display
+                            let ss58 = if let Ok(bytes) = hex::decode(hk) {
+                                if bytes.len() == 32 {
+                                    let hotkey_obj = Hotkey(bytes.try_into().unwrap());
+                                    hotkey_obj.to_ss58()
+                                } else {
+                                    hk[..16.min(hk.len())].to_string()
+                                }
+                            } else {
+                                hk[..16.min(hk.len())].to_string()
+                            };
+
+                            // Validate stake immediately
+                            let has_sufficient_stake = {
+                                if let Ok(bytes) = hex::decode(hk) {
+                                    if bytes.len() == 32 {
+                                        let hotkey_obj = Hotkey(bytes.try_into().unwrap());
+                                        let state = chain_state_clone.read();
+                                        if let Some(validator) = state.get_validator(&hotkey_obj) {
+                                            validator.stake.0 >= min_stake_rao
+                                        } else {
+                                            // Check cached stake
+                                            protection.check_cached_stake(hk)
+                                                .map(|v| v.is_valid())
+                                                .unwrap_or(false)
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            };
+
+                            if has_sufficient_stake {
+                                // Track hotkey connection
+                                protection.check_hotkey_connection(hk, &peer_str, None);
+                                info!("Peer identified: {} (hotkey: {}, stake: OK)", peer_id, ss58);
+                            } else {
+                                warn!(
+                                    "Peer {} has insufficient stake (hotkey: {}, required: {} TAO)",
+                                    peer_id, ss58, min_stake_tao
+                                );
+                                // Don't disconnect - they may still provide useful gossip
+                                // But we won't accept their signed messages
+                            }
+                        } else {
+                            // No hotkey in identify - old client or non-validator
+                            debug!(
+                                "Peer {} did not provide hotkey in identify (agent: {})",
+                                peer_id, agent_version
+                            );
+                        }
                     }
                     NetworkEvent::PeerDisconnected(peer) => {
                         let peer_str = peer.to_string();
@@ -1795,6 +1855,7 @@ async fn main() -> Result<()> {
                         if let Some(ref handler) = rpc_handler {
                             handler.remove_peer(&peer_str);
                         }
+                        // Try to get SS58 from protection tracking for better logging
                         info!("Peer disconnected: {}", peer);
                     }
                     NetworkEvent::MessageReceived { from, data } => {
