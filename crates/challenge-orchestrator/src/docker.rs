@@ -344,6 +344,14 @@ impl DockerClient {
         if let Ok(dev_mode) = std::env::var("DEVELOPMENT_MODE") {
             env.push(format!("DEVELOPMENT_MODE={}", dev_mode));
         }
+        // Pass validator hotkey (from platform validator) for P2P signing
+        if let Ok(validator_hotkey) = std::env::var("VALIDATOR_HOTKEY") {
+            env.push(format!("VALIDATOR_HOTKEY={}", validator_hotkey));
+        }
+        // Pass owner/sudo hotkey for challenge sudo operations
+        if let Ok(owner_hotkey) = std::env::var("OWNER_HOTKEY") {
+            env.push(format!("OWNER_HOTKEY={}", owner_hotkey));
+        }
 
         // Create container config
         let container_config = Config {

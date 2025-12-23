@@ -272,6 +272,10 @@ async fn main() -> Result<()> {
     info!("Validator hotkey: {}", keypair.ss58_address());
     debug!("Validator hotkey (hex): {}", keypair.hotkey().to_hex());
 
+    // Set VALIDATOR_HOTKEY env var for challenge containers
+    // This allows challenge containers to authenticate and sign P2P messages
+    std::env::set_var("VALIDATOR_HOTKEY", keypair.hotkey().to_hex());
+
     // The identity seed for P2P is derived from the hotkey (public key)
     // This ensures the peer ID corresponds to the SS58 address
     let identity_seed = keypair.hotkey().0;
@@ -349,6 +353,14 @@ async fn main() -> Result<()> {
         let state = ChainState::new(sudo_key, config);
         Arc::new(RwLock::new(state))
     };
+
+    // Set OWNER_HOTKEY env var for challenge containers
+    // This allows challenge containers to identify the subnet owner for sudo operations
+    {
+        let state = chain_state.read();
+        std::env::set_var("OWNER_HOTKEY", state.sudo_key.to_hex());
+        info!("Owner hotkey set: {}", state.sudo_key.to_hex());
+    }
 
     // Initialize network protection (DDoS + stake validation)
     let protection_config = ProtectionConfig {
@@ -2506,6 +2518,28 @@ async fn handle_message(
                             error!("Failed to remove challenge container: {}", e);
                         } else {
                             info!("Challenge container removed");
+                        }
+                    }
+                }
+                SudoAction::RefreshChallenges { challenge_id } => {
+                    if let Some(orchestrator) = challenge_orchestrator {
+                        match challenge_id {
+                            Some(id) => {
+                                info!("Refreshing challenge: {:?}", id);
+                                if let Err(e) = orchestrator.refresh_challenge(id).await {
+                                    error!("Failed to refresh challenge: {}", e);
+                                } else {
+                                    info!("Challenge refreshed successfully");
+                                }
+                            }
+                            None => {
+                                info!("Refreshing all challenges (re-pulling images)");
+                                if let Err(e) = orchestrator.refresh_all_challenges().await {
+                                    error!("Failed to refresh challenges: {}", e);
+                                } else {
+                                    info!("All challenges refreshed successfully");
+                                }
+                            }
                         }
                     }
                 }

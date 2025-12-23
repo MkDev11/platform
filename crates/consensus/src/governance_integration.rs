@@ -245,6 +245,7 @@ fn sudo_action_to_governance_type(action: &SudoAction) -> GovernanceActionType {
         SudoAction::EmergencyPause { .. } => GovernanceActionType::EmergencyPause,
         SudoAction::Resume => GovernanceActionType::Resume,
         SudoAction::ForceStateUpdate { .. } => GovernanceActionType::ForceStateUpdate,
+        SudoAction::RefreshChallenges { .. } => GovernanceActionType::UpdateChallenge, // Reuse UpdateChallenge type
     }
 }
 
@@ -255,6 +256,10 @@ fn generate_proposal_title(action: &SudoAction) -> String {
         SudoAction::AddChallenge { config } => format!("Add Challenge: {}", config.name),
         SudoAction::UpdateChallenge { config } => format!("Update Challenge: {}", config.name),
         SudoAction::RemoveChallenge { id } => format!("Remove Challenge: {:?}", id),
+        SudoAction::RefreshChallenges { challenge_id } => match challenge_id {
+            Some(id) => format!("Refresh Challenge: {:?}", id),
+            None => "Refresh All Challenges".to_string(),
+        },
         SudoAction::SetChallengeWeight { challenge_id, .. } => {
             format!("Set Weight for Challenge: {:?}", challenge_id)
         }
@@ -422,6 +427,13 @@ fn apply_sudo_action(state: &mut ChainState, action: &SudoAction) -> Result<()> 
         SudoAction::ForceStateUpdate { state: new_state } => {
             *state = new_state.clone();
             warn!("Force state update applied");
+        }
+        SudoAction::RefreshChallenges { challenge_id } => {
+            // RefreshChallenges doesn't modify state - handled by orchestrator
+            match challenge_id {
+                Some(id) => info!("Challenge refresh requested: {:?}", id),
+                None => info!("All challenges refresh requested"),
+            }
         }
     }
 

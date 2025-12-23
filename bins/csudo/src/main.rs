@@ -101,6 +101,10 @@ enum Commands {
     /// Emergency commands
     #[command(subcommand)]
     Emergency(EmergencyCommands),
+
+    /// Refresh challenges (re-pull images and restart containers on all validators)
+    #[command(subcommand)]
+    Refresh(RefreshCommands),
 }
 
 #[derive(Subcommand, Debug)]
@@ -206,6 +210,17 @@ enum EmergencyCommands {
     },
     /// Resume the network
     Resume,
+}
+
+#[derive(Subcommand, Debug)]
+enum RefreshCommands {
+    /// Refresh all challenges (re-pull images and restart containers)
+    All,
+    /// Refresh a specific challenge
+    Challenge {
+        /// Challenge ID (optional - select from list if not provided)
+        id: Option<String>,
+    },
 }
 
 // ==================== State Fetching ====================
@@ -1242,6 +1257,73 @@ async fn main() -> Result<()> {
             }
             EmergencyCommands::Resume => {
                 submit_action(&args.rpc, &keypair, SudoAction::Resume).await?;
+            }
+        },
+
+        Commands::Refresh(cmd) => match cmd {
+            RefreshCommands::All => {
+                println!(
+                    "{}",
+                    "Requesting all validators to re-pull and restart challenges..."
+                        .bright_yellow()
+                );
+                if Confirm::with_theme(&ColorfulTheme::default())
+                    .with_prompt("This will restart all challenge containers on all validators. Continue?")
+                    .default(true)
+                    .interact()?
+                {
+                    submit_action(
+                        &args.rpc,
+                        &keypair,
+                        SudoAction::RefreshChallenges { challenge_id: None },
+                    )
+                    .await?;
+                }
+            }
+            RefreshCommands::Challenge { id } => {
+                let state = fetch_chain_state(&args.rpc).await?;
+
+                let challenge = if let Some(id) = id {
+                    state
+                        .challenges
+                        .iter()
+                        .find(|c| c.id.starts_with(&id))
+                        .ok_or_else(|| anyhow::anyhow!("Challenge not found: {}", id))?
+                } else {
+                    if state.challenges.is_empty() {
+                        println!("{}", "No challenges to refresh.".yellow());
+                        return Ok(());
+                    }
+
+                    let options: Vec<String> = state
+                        .challenges
+                        .iter()
+                        .map(|c| format!("{} ({})", c.name, &c.id[..8]))
+                        .collect();
+
+                    let selection = FuzzySelect::with_theme(&ColorfulTheme::default())
+                        .with_prompt("Select challenge to refresh")
+                        .items(&options)
+                        .interact()?;
+
+                    &state.challenges[selection]
+                };
+
+                println!(
+                    "Refreshing challenge: {} ({})",
+                    challenge.name.green(),
+                    &challenge.id[..8]
+                );
+
+                let challenge_id = ChallengeId(uuid::Uuid::parse_str(&challenge.id)?);
+                submit_action(
+                    &args.rpc,
+                    &keypair,
+                    SudoAction::RefreshChallenges {
+                        challenge_id: Some(challenge_id),
+                    },
+                )
+                .await?;
             }
         },
     }

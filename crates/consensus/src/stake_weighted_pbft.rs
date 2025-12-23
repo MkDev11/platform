@@ -544,6 +544,14 @@ impl StakeWeightedPBFT {
                 state.remove_challenge(&id);
                 info!("Challenge removed: {:?}", id);
             }
+            SudoAction::RefreshChallenges { challenge_id } => {
+                // RefreshChallenges is handled by the orchestrator, not state
+                // Just log it here
+                match challenge_id {
+                    Some(id) => info!("Challenge refresh requested: {:?}", id),
+                    None => info!("All challenges refresh requested"),
+                }
+            }
             SudoAction::SetRequiredVersion {
                 min_version,
                 recommended_version,

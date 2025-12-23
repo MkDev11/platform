@@ -82,11 +82,78 @@ impl ChallengeOrchestrator {
 
     /// Add and start a new challenge
     pub async fn add_challenge(&self, config: ChallengeContainerConfig) -> anyhow::Result<()> {
+        // Pull image first to ensure it's available
+        tracing::info!(
+            image = %config.docker_image,
+            challenge = %config.name,
+            "Pulling Docker image before starting challenge"
+        );
+        self.docker.pull_image(&config.docker_image).await?;
+
         let instance = self.docker.start_challenge(&config).await?;
         self.challenges
             .write()
             .insert(config.challenge_id, instance);
         tracing::info!(challenge_id = %config.challenge_id, "Challenge container started");
+        Ok(())
+    }
+
+    /// Refresh a challenge (re-pull image and restart container)
+    pub async fn refresh_challenge(&self, challenge_id: ChallengeId) -> anyhow::Result<()> {
+        // Get current config
+        let instance = self
+            .challenges
+            .read()
+            .get(&challenge_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Challenge not found: {}", challenge_id))?;
+
+        tracing::info!(
+            challenge_id = %challenge_id,
+            image = %instance.image,
+            "Refreshing challenge (re-pulling image and restarting)"
+        );
+
+        // Stop current container
+        self.docker.stop_container(&instance.container_id).await?;
+
+        // Re-pull the image (force fresh pull)
+        self.docker.pull_image(&instance.image).await?;
+
+        // We need the full config to restart - get it from state or recreate
+        // For now, create a minimal config from the instance
+        let config = ChallengeContainerConfig {
+            challenge_id,
+            name: format!("challenge-{}", challenge_id),
+            docker_image: instance.image.clone(),
+            mechanism_id: 0, // Default, should be stored
+            emission_weight: 1.0,
+            timeout_secs: 3600,
+            cpu_cores: 2.0,
+            memory_mb: 4096,
+            gpu_required: false,
+        };
+
+        // Start new container
+        let new_instance = self.docker.start_challenge(&config).await?;
+        self.challenges.write().insert(challenge_id, new_instance);
+
+        tracing::info!(challenge_id = %challenge_id, "Challenge refreshed successfully");
+        Ok(())
+    }
+
+    /// Refresh all challenges (re-pull images and restart all containers)
+    pub async fn refresh_all_challenges(&self) -> anyhow::Result<()> {
+        let challenge_ids: Vec<ChallengeId> = self.challenges.read().keys().cloned().collect();
+
+        tracing::info!(count = challenge_ids.len(), "Refreshing all challenges");
+
+        for id in challenge_ids {
+            if let Err(e) = self.refresh_challenge(id).await {
+                tracing::error!(challenge_id = %id, error = %e, "Failed to refresh challenge");
+            }
+        }
+
         Ok(())
     }
 

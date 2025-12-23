@@ -1428,6 +1428,42 @@ impl RpcHandler {
                         }
                     }
                 }
+                platform_core::ProposalAction::Sudo(
+                    platform_core::SudoAction::RefreshChallenges { challenge_id },
+                ) => {
+                    info!("RefreshChallenges action received: {:?}", challenge_id);
+                    // Trigger orchestrator to refresh (re-pull and restart)
+                    if let Some(tx) = self.orchestrator_tx.read().as_ref() {
+                        match challenge_id {
+                            Some(id) => {
+                                // Refresh specific challenge - get config and send update
+                                let config = {
+                                    self.chain_state.read().challenge_configs.get(id).cloned()
+                                };
+                                if let Some(config) = config {
+                                    if let Err(e) = tx.send(OrchestratorCommand::Update(config)) {
+                                        warn!("Failed to send refresh to orchestrator: {}", e);
+                                    }
+                                }
+                            }
+                            None => {
+                                // Refresh all - send update for each challenge
+                                let configs: Vec<_> = self
+                                    .chain_state
+                                    .read()
+                                    .challenge_configs
+                                    .values()
+                                    .cloned()
+                                    .collect();
+                                for config in configs {
+                                    if let Err(e) = tx.send(OrchestratorCommand::Update(config)) {
+                                        warn!("Failed to send refresh to orchestrator: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => {
                     // Other sudo actions - just apply to state
                 }

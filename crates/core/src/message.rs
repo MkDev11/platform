@@ -273,6 +273,13 @@ pub enum SudoAction {
     /// Remove a challenge
     RemoveChallenge { id: ChallengeId },
 
+    /// Refresh challenges (re-pull images and restart containers)
+    /// Used when challenge images are updated on the registry
+    RefreshChallenges {
+        /// Optional: specific challenge ID to refresh. If None, refresh all.
+        challenge_id: Option<ChallengeId>,
+    },
+
     // === Weight Allocation ===
     /// Set challenge weight ratio on a mechanism (0.0 - 1.0)
     /// Remaining weight goes to UID 0 (burn) unless other challenges share the mechanism
