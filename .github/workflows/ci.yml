@@ -35,7 +35,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-          shared-key: "platform-build"
+          shared-key: "platform-release"
 
       - name: Build
         run: cargo build --release
@@ -65,8 +65,8 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "platform-build"
-          save-if: false
+          cache-on-failure: true
+          shared-key: "platform-debug"
 
       - name: Run tests with coverage
         run: cargo llvm-cov --workspace --json --output-path coverage.json
@@ -112,8 +112,8 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "platform-build"
-          save-if: false
+          cache-on-failure: true
+          shared-key: "platform-debug"
 
       - name: Run clippy
         run: cargo clippy --all-targets --workspace -- -W clippy::all
@@ -191,7 +191,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "platform-build"
+          shared-key: "platform-release"
           save-if: false
 
       - name: Build release binaries
