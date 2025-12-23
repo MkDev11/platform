@@ -369,6 +369,11 @@ impl DockerClient {
         if let Ok(owner_hotkey) = std::env::var("OWNER_HOTKEY") {
             env.push(format!("OWNER_HOTKEY={}", owner_hotkey));
         }
+        // Pass Platform URL for metagraph verification
+        // Use container hostname or env var since we're on the same Docker network
+        let validator_host = std::env::var("VALIDATOR_CONTAINER_NAME")
+            .unwrap_or_else(|_| "platform-validator".to_string());
+        env.push(format!("PLATFORM_URL=http://{}:8080", validator_host));
 
         // Create container config
         let container_config = Config {
