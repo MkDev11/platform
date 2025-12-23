@@ -207,12 +207,17 @@ fn init_sentry() -> Option<sentry::ClientInitGuard> {
 
     // Set initial context
     sentry::configure_scope(|scope| {
-        scope.set_tag("netuid", std::env::var("NETUID").unwrap_or_else(|_| "unknown".to_string()));
+        scope.set_tag(
+            "netuid",
+            std::env::var("NETUID").unwrap_or_else(|_| "unknown".to_string()),
+        );
         scope.set_tag("node_type", "validator");
     });
 
-    eprintln!("[Sentry] Error monitoring initialized (env: {})", 
-        std::env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string()));
+    eprintln!(
+        "[Sentry] Error monitoring initialized (env: {})",
+        std::env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string())
+    );
     Some(guard)
 }
 
@@ -229,21 +234,23 @@ async fn main() -> Result<()> {
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         // Capture panic in Sentry
-        sentry::capture_message(
-            &format!("PANIC: {}", panic_info),
-            sentry::Level::Fatal,
-        );
+        sentry::capture_message(&format!("PANIC: {}", panic_info), sentry::Level::Fatal);
         // Flush Sentry before crashing
-        sentry::Hub::current().client().map(|c| c.flush(Some(std::time::Duration::from_secs(5))));
-        
+        sentry::Hub::current()
+            .client()
+            .map(|c| c.flush(Some(std::time::Duration::from_secs(5))));
+
         // IMPORTANT: Delay exit to allow Watchtower to update container
-        eprintln!("[FATAL] Panic detected. Waiting {}s before exit to allow container updates...", CRASH_DELAY_SECS);
+        eprintln!(
+            "[FATAL] Panic detected. Waiting {}s before exit to allow container updates...",
+            CRASH_DELAY_SECS
+        );
         std::thread::sleep(std::time::Duration::from_secs(CRASH_DELAY_SECS));
-        
+
         // Call default panic handler
         default_panic(panic_info);
     }));
-    
+
     // Run validator and handle fatal errors with delayed exit
     if let Err(e) = run_validator().await {
         error!("Fatal error: {}", e);
@@ -251,11 +258,14 @@ async fn main() -> Result<()> {
         if let Some(client) = sentry::Hub::current().client() {
             client.flush(Some(std::time::Duration::from_secs(5)));
         }
-        
+
         // IMPORTANT: Delay exit to allow Watchtower to update container
-        error!("Waiting {}s before exit to allow Watchtower updates...", CRASH_DELAY_SECS);
+        error!(
+            "Waiting {}s before exit to allow Watchtower updates...",
+            CRASH_DELAY_SECS
+        );
         tokio::time::sleep(tokio::time::Duration::from_secs(CRASH_DELAY_SECS)).await;
-        
+
         return Err(e);
     }
     Ok(())
@@ -263,7 +273,6 @@ async fn main() -> Result<()> {
 
 /// Main validator logic
 async fn run_validator() -> Result<()> {
-
     // Initialize logging with Sentry integration
     let subscriber = tracing_subscriber::fmt()
         .with_env_filter(
@@ -385,7 +394,11 @@ async fn run_validator() -> Result<()> {
                     let name = entry.file_name();
                     let name_str = name.to_string_lossy();
                     // Remove sled files but preserve distributed-db (handled separately)
-                    if name_str == "db" || name_str == "conf" || name_str.starts_with("snap.") || name_str == "blobs" {
+                    if name_str == "db"
+                        || name_str == "conf"
+                        || name_str.starts_with("snap.")
+                        || name_str == "blobs"
+                    {
                         warn!("Removing sled file: {:?}", path);
                         if path.is_dir() {
                             let _ = std::fs::remove_dir_all(&path);
@@ -481,7 +494,10 @@ async fn run_validator() -> Result<()> {
             Arc::new(RwLock::new(state))
         }
         Err(e) if is_corruption_error(&e) => {
-            warn!("Chain state corruption detected: {}. Creating fresh state...", e);
+            warn!(
+                "Chain state corruption detected: {}. Creating fresh state...",
+                e
+            );
             // Note: Storage is already open, corrupted data will be overwritten on save
             // The state is stored in sled's "state" tree, which will be updated
             // when save_state() is called with the fresh state
@@ -660,7 +676,10 @@ async fn run_validator() -> Result<()> {
             let container_name = format!(
                 "challenge-{}-{}",
                 config.name.to_lowercase().replace(' ', "-"),
-                validator_suffix.to_lowercase().replace('-', "").replace(' ', "")
+                validator_suffix
+                    .to_lowercase()
+                    .replace('-', "")
+                    .replace(' ', "")
             );
             let endpoint = format!("http://{}:8080", container_name);
             challenge_endpoints.write().insert(challenge_id, endpoint);
@@ -707,7 +726,10 @@ async fn run_validator() -> Result<()> {
                                 let container_name = format!(
                                     "challenge-{}-{}",
                                     cfg.name.to_lowercase().replace(' ', "-"),
-                                    validator_suffix.to_lowercase().replace('-', "").replace(' ', "")
+                                    validator_suffix
+                                        .to_lowercase()
+                                        .replace('-', "")
+                                        .replace(' ', "")
                                 );
                                 format!("http://{}:8080", container_name)
                             }
@@ -1644,9 +1666,10 @@ async fn run_validator() -> Result<()> {
                                             if let Ok(platform_challenge_sdk::ChallengeP2PMessage::DecryptApiKeyRequest(req)) =
                                                 serde_json::from_value::<platform_challenge_sdk::ChallengeP2PMessage>(message.clone()) {
                                                     // Decrypt the API key locally and send response back to container
+                                                    // Use public key (hotkey bytes) - the encryption uses SHA256(domain || pubkey || salt)
                                                     let response = match platform_challenge_sdk::decrypt_api_key(
                                                         &req.encrypted_key,
-                                                        &keypair_for_outbox.seed(),
+                                                        &keypair_for_outbox.hotkey().0,
                                                     ) {
                                                         Ok(api_key) => {
                                                             info!("Decrypted API key for agent {} (request {})", &req.agent_hash[..16.min(req.agent_hash.len())], &req.request_id[..8]);
@@ -2671,10 +2694,7 @@ async fn handle_message(
                                 {
                                     let endpoint = instance.endpoint.clone();
                                     let mut eps = endpoints.write();
-                                    eps.insert(
-                                        config.challenge_id.to_string(),
-                                        endpoint.clone(),
-                                    );
+                                    eps.insert(config.challenge_id.to_string(), endpoint.clone());
                                     eps.insert(config.name.clone(), endpoint.clone());
                                     info!(
                                         "Updated endpoint for challenge '{}': {}",
@@ -2876,10 +2896,7 @@ async fn handle_message(
                             {
                                 let endpoint = instance.endpoint.clone();
                                 let mut eps = endpoints.write();
-                                eps.insert(
-                                    config.challenge_id.to_string(),
-                                    endpoint.clone(),
-                                );
+                                eps.insert(config.challenge_id.to_string(), endpoint.clone());
                                 eps.insert(config.name.clone(), endpoint.clone());
                                 info!(
                                     "Updated endpoint for challenge '{}' (P2P): {}",

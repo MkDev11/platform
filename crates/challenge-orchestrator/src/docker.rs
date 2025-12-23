@@ -329,7 +329,7 @@ impl DockerClient {
                 "/var/run/docker.sock:/var/run/docker.sock:rw".to_string(),
                 "/tmp/platform-tasks:/app/data/tasks:rw".to_string(), // Override internal tasks
                 "/tmp/platform-tasks:/tmp/platform-tasks:rw".to_string(), // For DinD path mapping
-                format!("{}:/data:rw", volume_name),                  // Named volume for persistent state
+                format!("{}:/data:rw", volume_name), // Named volume for persistent state
             ]),
             ..Default::default()
         };

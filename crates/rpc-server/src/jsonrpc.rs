@@ -930,7 +930,9 @@ impl RpcHandler {
                 // Try SS58 format
                 match platform_core::Hotkey::from_ss58(&hotkey) {
                     Some(h) => h,
-                    None => return JsonRpcResponse::error(id, INVALID_PARAMS, "Invalid hotkey format"),
+                    None => {
+                        return JsonRpcResponse::error(id, INVALID_PARAMS, "Invalid hotkey format")
+                    }
                 }
             }
         };
