@@ -323,13 +323,29 @@ impl NetworkNode {
             SwarmEvent::NewListenAddr { address, .. } => {
                 info!("Listening on {}", address);
             }
-            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+            SwarmEvent::ConnectionEstablished {
+                peer_id,
+                num_established,
+                endpoint,
+                ..
+            } => {
                 let is_bootstrap = self.bootstrap_peer_ids.contains(&peer_id);
+                let direction = if endpoint.is_dialer() {
+                    "outbound"
+                } else {
+                    "inbound"
+                };
                 if is_bootstrap {
-                    info!("Connected to bootnode: {}", peer_id);
+                    info!(
+                        "Connected to bootnode: {} ({}, {} connections)",
+                        peer_id, direction, num_established
+                    );
                     *self.bootstrap_connected.write() = true;
                 } else {
-                    info!("Connected to peer: {}", peer_id);
+                    info!(
+                        "Connected to peer: {} ({}, {} connections)",
+                        peer_id, direction, num_established
+                    );
                 }
                 self.peers.write().insert(peer_id);
                 let _ = self
@@ -386,6 +402,33 @@ impl NetworkNode {
                         data: message.data,
                     })
                     .await;
+            }
+            MiniChainBehaviourEvent::Gossipsub(gossipsub::Event::Subscribed { peer_id, topic }) => {
+                info!(
+                    "Peer {} subscribed to topic: {}",
+                    peer_id,
+                    topic.as_str()
+                );
+                // Now that the peer has subscribed, add them as explicit peer to ensure mesh membership
+                self.swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .add_explicit_peer(&peer_id);
+            }
+            MiniChainBehaviourEvent::Gossipsub(gossipsub::Event::Unsubscribed { peer_id, topic }) => {
+                info!(
+                    "Peer {} unsubscribed from topic: {}",
+                    peer_id,
+                    topic.as_str()
+                );
+            }
+            MiniChainBehaviourEvent::Gossipsub(gossipsub::Event::GossipsubNotSupported {
+                peer_id,
+            }) => {
+                warn!(
+                    "Peer {} does not support gossipsub protocol - cannot exchange messages",
+                    peer_id
+                );
             }
             MiniChainBehaviourEvent::Mdns(mdns::Event::Discovered(list)) => {
                 for (peer_id, addr) in list {
@@ -451,11 +494,14 @@ impl NetworkNode {
                     })
                     .await;
 
-                // Add to gossipsub mesh
+                // Note: Mesh membership is handled in Gossipsub::Event::Subscribed
+                // which fires when the peer subscribes to our topic via gossipsub protocol.
+                // add_explicit_peer here is a fallback in case subscription exchange already happened.
                 self.swarm
                     .behaviour_mut()
                     .gossipsub
                     .add_explicit_peer(&peer_id);
+                debug!("Added {} as explicit peer after identify (awaiting topic subscription)", peer_id);
 
                 // Also connect to other peers they know about through their observed addr
                 // This helps with peer discovery in small networks
