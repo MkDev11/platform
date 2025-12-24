@@ -48,7 +48,7 @@ impl MiniChainBehaviour {
             .mesh_n(8) // Target mesh size (good for networks up to 64 nodes)
             .mesh_n_low(2) // Minimum mesh size before adding peers
             .mesh_n_high(16) // Maximum mesh size before pruning
-            .mesh_outbound_min(1) // Minimum outbound peers (must be <= mesh_n_low)
+            .mesh_outbound_min(0) // Allow mesh with only inbound peers (important for bootnodes)
             .gossip_lazy(6) // Peers to gossip to outside mesh
             .gossip_factor(0.25) // Fraction of peers to gossip to
             .do_px() // Enable peer exchange on PRUNE for discovery

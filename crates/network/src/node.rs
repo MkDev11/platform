@@ -225,6 +225,18 @@ impl NetworkNode {
     /// Dial all bootstrap peers
     pub fn dial_bootstrap_peers(&mut self) {
         for addr in self.bootstrap_peers.clone() {
+            // Skip dialing ourselves (important for bootnode)
+            let is_self = addr.iter().any(|p| {
+                if let libp2p::multiaddr::Protocol::P2p(peer_id) = p {
+                    peer_id == self.local_peer_id
+                } else {
+                    false
+                }
+            });
+            if is_self {
+                info!("Skipping self-dial (we ARE the bootnode)");
+                continue;
+            }
             info!("Dialing bootstrap peer: {}", addr);
             if let Err(e) = self.swarm.dial(addr.clone()) {
                 warn!("Failed to dial bootstrap peer {}: {}", addr, e);
@@ -236,6 +248,10 @@ impl NetworkNode {
     pub fn has_bootstrap_connection(&self) -> bool {
         if self.bootstrap_peers.is_empty() {
             return true; // No bootstrap peers configured
+        }
+        // If we ARE the bootnode, we don't need to connect to ourselves
+        if self.bootstrap_peer_ids.contains(&self.local_peer_id) {
+            return true;
         }
         // Check if we're connected to at least one bootstrap peer
         let peers = self.peers.read();
@@ -496,12 +512,7 @@ impl NetworkNode {
 
                 // Note: Mesh membership is handled in Gossipsub::Event::Subscribed
                 // which fires when the peer subscribes to our topic via gossipsub protocol.
-                // add_explicit_peer here is a fallback in case subscription exchange already happened.
-                self.swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .add_explicit_peer(&peer_id);
-                debug!("Added {} as explicit peer after identify (awaiting topic subscription)", peer_id);
+                // add_explicit_peer is called there, not here, to avoid duplicate calls.
 
                 // Also connect to other peers they know about through their observed addr
                 // This helps with peer discovery in small networks
