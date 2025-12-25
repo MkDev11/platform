@@ -28,7 +28,7 @@ impl ChallengeProxy {
             challenge_id: challenge_id.to_string(),
             base_url: base_url.trim_end_matches('/').to_string(),
             client: Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
+                .timeout(std::time::Duration::from_secs(600)) // 10 minutes for long evaluations
                 .build()
                 .expect("Failed to create HTTP client"),
         }
