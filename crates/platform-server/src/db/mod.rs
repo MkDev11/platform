@@ -19,6 +19,11 @@ pub type DbPool = Pool;
 pub async fn init_db(base_url: &str) -> Result<DbPool> {
     let db_name = "platform_server";
 
+    // Strip trailing database name if present (e.g., /postgres)
+    let base_url = base_url
+        .trim_end_matches(|c: char| c != '/')
+        .trim_end_matches('/');
+
     // Connect to postgres database to create server database if needed
     let admin_pool = create_pool(&format!("{}/postgres", base_url)).await?;
     let admin_client = admin_pool.get().await?;
@@ -61,6 +66,11 @@ pub async fn init_challenge_db(base_url: &str, challenge_id: &str) -> Result<DbP
     }
 
     let db_name = format!("platform_{}", challenge_id.replace('-', "_"));
+
+    // Strip trailing database name if present
+    let base_url = base_url
+        .trim_end_matches(|c: char| c != '/')
+        .trim_end_matches('/');
 
     // Connect to postgres database to create challenge database if needed
     let admin_pool = create_pool(&format!("{}/postgres", base_url)).await?;
