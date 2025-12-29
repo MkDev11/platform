@@ -473,8 +473,12 @@ impl DockerClient {
             debug!("Volume creation result for {}: {:?}", volume_name, e);
         }
 
-        // Create cache volume for downloaded datasets
-        let cache_volume_name = format!("{}-cache", volume_name);
+        // Create cache volume for downloaded datasets (shared across restarts)
+        // Use challenge name only (not suffix) so cache persists even if container name changes
+        let cache_volume_name = format!(
+            "challenge-{}-cache",
+            config.name.to_lowercase().replace(' ', "-")
+        );
         let cache_volume_opts = bollard::volume::CreateVolumeOptions {
             name: cache_volume_name.as_str(),
             driver: "local",
@@ -498,7 +502,7 @@ impl DockerClient {
                 "/tmp/platform-tasks:/app/data/tasks:rw".to_string(), // Override internal tasks
                 "/tmp/platform-tasks:/tmp/platform-tasks:rw".to_string(), // For DinD path mapping
                 format!("{}:/data:rw", volume_name), // Named volume for persistent state
-                format!("{}-cache:/root/.cache:rw", volume_name), // Cache for downloaded datasets
+                format!("{}:/root/.cache:rw", cache_volume_name), // Cache for downloaded datasets
             ]),
             ..Default::default()
         };
@@ -541,17 +545,21 @@ impl DockerClient {
             env.push(format!("OWNER_HOTKEY={}", owner_hotkey));
         }
         // Pass Platform URL for metagraph verification
-        // Use container hostname or env var since we're on the same Docker network
-        let validator_host = std::env::var("VALIDATOR_CONTAINER_NAME")
-            .unwrap_or_else(|_| "platform-validator".to_string());
-        env.push(format!("PLATFORM_URL=http://{}:8080", validator_host));
+        // Use VALIDATOR_NAME to determine if we're server or validator
+        let platform_host = std::env::var("VALIDATOR_NAME")
+            .map(|name| format!("platform-{}", name))
+            .unwrap_or_else(|_| {
+                std::env::var("VALIDATOR_CONTAINER_NAME")
+                    .unwrap_or_else(|_| "platform-server".to_string())
+            });
+        env.push(format!("PLATFORM_URL=http://{}:8080", platform_host));
 
         // Pass Container Broker WebSocket URL for secure container spawning
         // Challenges connect to this broker instead of using Docker socket directly
         let broker_port = std::env::var("BROKER_WS_PORT").unwrap_or_else(|_| "8090".to_string());
         env.push(format!(
             "CONTAINER_BROKER_WS_URL=ws://{}:{}",
-            validator_host, broker_port
+            platform_host, broker_port
         ));
 
         // Pass JWT token for broker authentication (if set)
