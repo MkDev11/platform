@@ -888,7 +888,8 @@ pub async fn create_job(
     challenge_id: &str,
 ) -> Result<EvaluationJob> {
     let client = pool.get().await?;
-    let job_id = Uuid::new_v4().to_string();
+    let job_uuid = Uuid::new_v4();
+    let sub_uuid = Uuid::parse_str(submission_id)?;
     let now = chrono::Utc::now().timestamp();
 
     // Get submission details
@@ -902,8 +903,8 @@ pub async fn create_job(
              source_code, api_key, api_provider, challenge_id, status, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', NOW())",
             &[
-                &job_id,
-                &submission_id,
+                &job_uuid,
+                &sub_uuid,
                 &sub.agent_hash,
                 &sub.miner_hotkey,
                 &sub.source_code,
@@ -915,7 +916,7 @@ pub async fn create_job(
         .await?;
 
     Ok(EvaluationJob {
-        id: job_id,
+        id: job_uuid.to_string(),
         submission_id: submission_id.to_string(),
         agent_hash: sub.agent_hash,
         miner_hotkey: sub.miner_hotkey,
@@ -961,8 +962,8 @@ pub async fn claim_next_job(
         .await?;
 
     Ok(row.map(|r| EvaluationJob {
-        id: r.get(0),
-        submission_id: r.get(1),
+        id: r.get::<_, Uuid>(0).to_string(),
+        submission_id: r.get::<_, Uuid>(1).to_string(),
         agent_hash: r.get(2),
         miner_hotkey: r.get(3),
         source_code: r.get::<_, Option<String>>(4).unwrap_or_default(),
@@ -979,6 +980,7 @@ pub async fn claim_next_job(
 /// Get a job by ID
 pub async fn get_job(pool: &Pool, job_id: &str) -> Result<Option<EvaluationJob>> {
     let client = pool.get().await?;
+    let job_uuid = Uuid::parse_str(job_id)?;
     let row = client
         .query_opt(
             "SELECT id, submission_id, agent_hash, miner_hotkey, source_code,
@@ -987,15 +989,15 @@ pub async fn get_job(pool: &Pool, job_id: &str) -> Result<Option<EvaluationJob>>
                     status, assigned_validator, 
                     EXTRACT(EPOCH FROM assigned_at)::BIGINT as assigned_at
              FROM evaluation_jobs WHERE id = $1",
-            &[&job_id],
+            &[&job_uuid],
         )
         .await?;
 
     Ok(row.map(|r| {
         let status_str: String = r.get(9);
         EvaluationJob {
-            id: r.get(0),
-            submission_id: r.get(1),
+            id: r.get::<_, Uuid>(0).to_string(),
+            submission_id: r.get::<_, Uuid>(1).to_string(),
             agent_hash: r.get(2),
             miner_hotkey: r.get(3),
             source_code: r.get::<_, Option<String>>(4).unwrap_or_default(),
@@ -1025,6 +1027,7 @@ pub async fn update_job_progress(
     status: &str,
 ) -> Result<()> {
     let client = pool.get().await?;
+    let job_uuid = Uuid::parse_str(job_id)?;
     client
         .execute(
             "UPDATE evaluation_jobs SET 
@@ -1033,7 +1036,7 @@ pub async fn update_job_progress(
                 last_progress = $3,
                 updated_at = NOW()
              WHERE id = $1",
-            &[&job_id, &(task_index as i32), &status],
+            &[&job_uuid, &(task_index as i32), &status],
         )
         .await?;
     Ok(())
@@ -1042,10 +1045,11 @@ pub async fn update_job_progress(
 /// Mark job as completed
 pub async fn complete_job(pool: &Pool, job_id: &str) -> Result<()> {
     let client = pool.get().await?;
+    let job_uuid = Uuid::parse_str(job_id)?;
     client
         .execute(
             "UPDATE evaluation_jobs SET status = 'completed', updated_at = NOW() WHERE id = $1",
-            &[&job_id],
+            &[&job_uuid],
         )
         .await?;
     Ok(())

@@ -188,8 +188,8 @@ CREATE INDEX IF NOT EXISTS idx_challenges_status ON challenges(status);
 
 -- Evaluation jobs queue
 CREATE TABLE IF NOT EXISTS evaluation_jobs (
-    id VARCHAR(64) PRIMARY KEY,
-    submission_id VARCHAR(64) NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    submission_id UUID NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
     agent_hash VARCHAR(128) NOT NULL,
     miner_hotkey VARCHAR(128) NOT NULL,
     source_code TEXT,
