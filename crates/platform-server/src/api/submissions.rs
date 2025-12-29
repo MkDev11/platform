@@ -66,9 +66,20 @@ pub async fn submit_agent(
     let epoch = queries::get_current_epoch(&state.db).await.unwrap_or(0);
 
     // Rate limiting: 0.33 submissions per epoch (1 every 3 epochs)
-    let can_submit = queries::can_miner_submit(&state.db, &req.miner_hotkey, epoch)
-        .await
-        .unwrap_or(false);
+    let can_submit = match queries::can_miner_submit(&state.db, &req.miner_hotkey, epoch).await {
+        Ok(can) => can,
+        Err(e) => {
+            tracing::error!("Rate limit check failed for {}: {}", req.miner_hotkey, e);
+            true // Allow submission if rate limit check fails
+        }
+    };
+
+    tracing::debug!(
+        "Submission check: miner={}, epoch={}, can_submit={}",
+        &req.miner_hotkey[..16.min(req.miner_hotkey.len())],
+        epoch,
+        can_submit
+    );
 
     if !can_submit {
         return Err((
