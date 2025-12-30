@@ -4,6 +4,7 @@ pub mod auth;
 pub mod bridge;
 pub mod challenges;
 pub mod evaluations;
+pub mod events;
 pub mod jobs;
 pub mod leaderboard;
 pub mod llm;

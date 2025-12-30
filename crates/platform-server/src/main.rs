@@ -232,6 +232,11 @@ async fn main() -> anyhow::Result<()> {
         )
         // === CENTRALIZED LLM PROXY ===
         .route("/api/v1/llm/chat", post(api::llm::chat))
+        // === CHALLENGE EVENTS (broadcast to validators) ===
+        .route(
+            "/api/v1/events/broadcast",
+            post(api::events::broadcast_event),
+        )
         .layer(TraceLayer::new_for_http())
         .layer(
             CorsLayer::new()

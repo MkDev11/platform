@@ -308,6 +308,11 @@ pub enum WsEvent {
     #[serde(rename = "job_assigned")]
     JobAssigned(JobAssignedEvent),
 
+    /// Custom challenge event - each challenge can define its own event types
+    /// Validators filter by challenge_id to receive only relevant events
+    #[serde(rename = "challenge_event")]
+    ChallengeEvent(ChallengeCustomEvent),
+
     #[serde(rename = "job_progress")]
     JobProgress(JobProgressEvent),
 
@@ -459,6 +464,20 @@ pub struct ChallengeStartedEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChallengeStoppedEvent {
     pub id: String,
+}
+
+/// Custom event from a challenge - allows challenges to broadcast their own events
+/// Validators subscribe and filter by challenge_id
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChallengeCustomEvent {
+    /// Challenge identifier (e.g., "term-challenge")
+    pub challenge_id: String,
+    /// Event name within the challenge (e.g., "new_submission", "evaluation_needed")
+    pub event_name: String,
+    /// Event payload as JSON - challenge-specific data
+    pub payload: serde_json::Value,
+    /// Timestamp when event was created
+    pub timestamp: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
