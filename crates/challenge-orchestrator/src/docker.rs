@@ -495,8 +495,9 @@ impl DockerClient {
                 "/var/run/docker.sock:/var/run/docker.sock:rw".to_string(),
                 "/tmp/platform-tasks:/app/data/tasks:rw".to_string(), // Override internal tasks
                 "/tmp/platform-tasks:/tmp/platform-tasks:rw".to_string(), // For DinD path mapping
+                "/tmp/platform-cache:/root/.cache/term-challenge:rw".to_string(), // Cache bind mount for DinD
+                "/tmp/platform-cache:/tmp/platform-cache:rw".to_string(), // For DinD path mapping
                 format!("{}:/data:rw", volume_name), // Named volume for persistent state
-                format!("{}:/root/.cache:rw", cache_volume_name), // Cache for downloaded datasets
             ]),
             ..Default::default()
         };
@@ -533,6 +534,9 @@ impl DockerClient {
         // For Docker-in-Docker: tasks are at /host-tasks on host (we mount below)
         // The HOST_TASKS_DIR tells the challenge how to map container paths to host paths
         env.push("HOST_TASKS_DIR=/tmp/platform-tasks".to_string());
+        // For Docker-in-Docker: cache directory mapping (for downloaded datasets)
+        env.push("HOST_CACHE_DIR=/tmp/platform-cache".to_string());
+        env.push("CACHE_DIR=/root/.cache/term-challenge".to_string());
         // Pass through DEVELOPMENT_MODE for local image support
         if let Ok(dev_mode) = std::env::var("DEVELOPMENT_MODE") {
             env.push(format!("DEVELOPMENT_MODE={}", dev_mode));
