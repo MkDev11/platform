@@ -30,7 +30,7 @@
 - **Challenge-Based Architecture**: Modular Docker containers define custom evaluation logic
 - **Byzantine Fault Tolerance**: PBFT consensus with $2f+1$ threshold ensures correctness
 - **Secure Weight Submission**: Weights submitted to Bittensor at epoch boundaries
-- **Merkle State Sync**: Verifiable distributed database with optimistic execution
+- **Centralized Coordination**: Platform-server provides HTTP/WebSocket APIs for validators
 - **Multi-Mechanism Support**: Each challenge maps to a Bittensor mechanism for independent weight setting
 - **Stake-Weighted Security**: Minimum 1000 TAO stake required for validator participation
 
@@ -61,8 +61,8 @@ The coordination between validators ensures that only verified, consensus-valida
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘         │
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                     Distributed Database (Merkle Trie)                │  │
-│  │              Evaluation Results • Scores • Agent Data                 │  │
+│  │                 Platform Server (chain.platform.network)              │  │
+│  │          PostgreSQL Database • HTTP API • WebSocket Events            │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────┬───────────────────────────────────────────┘
                                   │
@@ -106,14 +106,14 @@ The coordination between validators ensures that only verified, consensus-valida
 2. **Submission**:
 
    - Submit to any validator via HTTP API
-   - Submission is stored in distributed database and synced across all validators
+   - Submission is stored in PostgreSQL database at platform-server
    - Submission includes: source code, miner hotkey, metadata
 
 3. **Evaluation**:
 
    - All validators independently evaluate the submission
    - Evaluation runs in isolated Docker containers (challenge-specific logic)
-   - Results are stored in Merkle-verified distributed database
+   - Results are stored in PostgreSQL database at platform-server
 
 4. **Weight Distribution**:
    - At epoch end, validators aggregate scores
@@ -139,15 +139,15 @@ The coordination between validators ensures that only verified, consensus-valida
 
 2. **Submission Evaluation**:
 
-   - Receive submissions via P2P gossipsub
+   - Receive submissions via platform-server HTTP API
    - Execute evaluation in sandboxed Docker environment
    - Compute score $s \in [0, 1]$ based on challenge criteria
 
 3. **Result Sharing**:
 
-   - Broadcast `EvaluationResult` to all peers via P2P
-   - Store results in distributed Merkle-verified database
-   - Verify state root matches across validators
+   - Submit `EvaluationResult` to platform-server via HTTP API
+   - Results stored in PostgreSQL database at platform-server
+   - Platform-server broadcasts events to validators via WebSocket
 
 4. **Score Aggregation**:
 
@@ -239,18 +239,13 @@ $$\text{threshold} = 2f + 1 = \left\lfloor \frac{2n}{3} \right\rfloor + 1$$
 - `SudoAction::SetRequiredVersion` - Mandatory version update
 - `NewBlock` - State checkpoint
 
-### Distributed Database Consensus
+### Centralized State Management
 
-State synchronization uses Merkle trie verification:
+Platform-server (run by subnet owner at `chain.platform.network`) maintains authoritative state:
 
-```
-StateRoot = MerkleRoot({(k_i, v_i) : ∀ entries})
-```
-
-Validators periodically compare state roots:
-
-- **In Consensus**: $\geq 2/3$ validators share same root
-- **Diverged**: Minority validators must sync from majority
+- **PostgreSQL Database**: Stores all submissions, evaluations, and scores
+- **HTTP API (port 8080)**: Validators submit and retrieve data
+- **WebSocket Events**: Real-time notifications to connected validators
 
 ---
 
@@ -290,7 +285,7 @@ Low confidence (high variance) may exclude submission from weights.
 
 - **Minimum Stake**: 1000 TAO required for validator participation
 - **Sybil Resistance**: Creating fake validators requires significant capital
-- **Stake Validation**: All P2P messages verified against metagraph stakes
+- **Stake Validation**: All API requests verified against metagraph stakes
 
 ### Network Protection
 
@@ -309,9 +304,9 @@ Low confidence (high variance) may exclude submission from weights.
 
 ### Data Integrity
 
-- **Merkle Verification**: All data changes update state root
-- **Signature Verification**: All messages signed by validator keys
-- **Optimistic Execution**: Immediate local apply, confirmed at block
+- **Centralized Database**: Platform-server maintains authoritative PostgreSQL state
+- **Signature Verification**: All API requests signed by validator keys
+- **WebSocket Sync**: Validators receive real-time state updates
 
 ---
 
@@ -352,7 +347,7 @@ Each Bittensor epoch (~360 blocks, ~72 minutes):
 
 - Receive and process submissions from challenges
 - Execute evaluations in Docker containers
-- Sync results via P2P to distributed database
+- Submit results to platform-server via HTTP API
 - Aggregate scores from all validators
 
 ### Weight Submission
@@ -371,7 +366,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-The validator will auto-connect to `bootnode.platform.network` and sync.
+The validator will auto-connect to platform-server at `chain.platform.network` and sync.
 
 ## Hardware Requirements
 
@@ -386,21 +381,51 @@ The validator will auto-connect to `bootnode.platform.network` and sync.
 
 ## Network Requirements
 
-**Port 9000/tcp must be open** for P2P communication.
+| Port     | Protocol  | Usage                                      |
+| -------- | --------- | ------------------------------------------ |
+| 8080/tcp | HTTP      | Platform-server API                        |
+| 8090/tcp | WebSocket | Container Broker (challenge communication) |
 
-| Port     | Protocol     | Usage                              |
-| -------- | ------------ | ---------------------------------- |
-| 9000/tcp | P2P (libp2p) | Validator communication (required) |
-| 8545/tcp | HTTP         | JSON-RPC API (optional)            |
+## API Endpoints
+
+### HTTP API (port 8080)
+
+Standard REST endpoints for submissions, evaluations, and challenges.
+
+### WebSocket Endpoints
+
+| Endpoint                           | Description                       |
+| ---------------------------------- | --------------------------------- |
+| `/ws`                              | Validator events                  |
+| `/ws/challenge`                    | Challenge container events        |
+
+### Bridge Proxy
+
+| Endpoint                           | Description                       |
+| ---------------------------------- | --------------------------------- |
+| `/api/v1/bridge/{challenge_id}/*`  | Proxy to challenge containers     |
 
 ## Configuration
 
-| Variable               | Description               | Default                                     |
-| ---------------------- | ------------------------- | ------------------------------------------- |
-| `VALIDATOR_SECRET_KEY` | BIP39 mnemonic or hex key | Required                                    |
-| `SUBTENSOR_ENDPOINT`   | Bittensor RPC endpoint    | `wss://entrypoint-finney.opentensor.ai:443` |
-| `NETUID`               | Subnet UID                | `100`                                       |
-| `RUST_LOG`             | Log level                 | `info`                                      |
+| Variable               | Description                          | Default                                     |
+| ---------------------- | ------------------------------------ | ------------------------------------------- |
+| `VALIDATOR_SECRET_KEY` | BIP39 mnemonic or hex key            | Required                                    |
+| `SUBTENSOR_ENDPOINT`   | Bittensor RPC endpoint               | `wss://entrypoint-finney.opentensor.ai:443` |
+| `NETUID`               | Subnet UID                           | `100`                                       |
+| `RUST_LOG`             | Log level                            | `info`                                      |
+| `PLATFORM_SERVER_URL`  | Platform server URL                  | `https://chain.platform.network`            |
+| `PLATFORM_PUBLIC_URL`  | Public URL for challenge containers  | Required                                    |
+| `DATABASE_URL`         | PostgreSQL connection (server only)  | Required for platform-server                |
+| `OWNER_HOTKEY`         | Subnet owner hotkey                  | Required for platform-server                |
+| `BROKER_WS_PORT`       | Container broker WebSocket port      | `8090`                                      |
+| `BROKER_JWT_SECRET`    | JWT secret for broker authentication | Required                                    |
+
+## Binary
+
+The unified `platform` binary supports two subcommands:
+
+- `platform server` - Run the platform-server (subnet owner only)
+- `platform validator` - Run a validator node
 
 ---
 
@@ -425,7 +450,7 @@ Platform creates a trustless, decentralized framework for evaluating miner submi
 - **PBFT Consensus** for Byzantine fault tolerance
 - **Stake-Weighted Aggregation** for Sybil resistance
 - **Docker Isolation** for deterministic evaluation (challenge-specific logic)
-- **Merkle State Sync** for verifiable distributed storage
+- **Centralized Platform Server** for authoritative state management
 
 The system ensures that only genuine, high-performing submissions receive rewards, while making manipulation economically infeasible. Validators are incentivized to provide accurate evaluations through reputation mechanics, and miners are incentivized to submit quality solutions through the weight distribution mechanism.
 
