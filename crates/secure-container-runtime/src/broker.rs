@@ -85,6 +85,11 @@ impl ContainerBroker {
         // Ensure network exists
         self.ensure_network().await?;
 
+        // Cleanup stale containers from previous runs
+        if let Err(e) = self.cleanup_stale_containers().await {
+            warn!("Failed to cleanup stale containers: {}", e);
+        }
+
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => {
@@ -869,6 +874,52 @@ impl ContainerBroker {
         }
 
         info!(image = %image, "Image pulled successfully");
+        Ok(())
+    }
+
+    /// Cleanup stale containers from previous runs
+    async fn cleanup_stale_containers(&self) -> anyhow::Result<()> {
+        use bollard::container::ListContainersOptions;
+
+        // Find all containers managed by this broker
+        let label_filter = format!("{}=true", labels::MANAGED);
+        let mut filters = HashMap::new();
+        filters.insert("label", vec![label_filter.as_str()]);
+
+        let options = ListContainersOptions {
+            all: true,
+            filters,
+            ..Default::default()
+        };
+
+        let containers = self.docker.list_containers(Some(options)).await?;
+        let count = containers.len();
+
+        if count == 0 {
+            info!("No stale containers to cleanup");
+            return Ok(());
+        }
+
+        info!("Cleaning up {} stale containers from previous run", count);
+
+        for container in containers {
+            if let Some(id) = container.id {
+                let short_id = &id[..12.min(id.len())];
+                debug!("Removing stale container: {}", short_id);
+
+                // Force remove (stop + remove)
+                let options = RemoveContainerOptions {
+                    force: true,
+                    ..Default::default()
+                };
+
+                if let Err(e) = self.docker.remove_container(&id, Some(options)).await {
+                    warn!("Failed to remove stale container {}: {}", short_id, e);
+                }
+            }
+        }
+
+        info!("Stale container cleanup complete");
         Ok(())
     }
 

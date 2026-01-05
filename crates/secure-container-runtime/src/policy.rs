@@ -62,8 +62,8 @@ impl Default for SecurityPolicy {
             max_memory_bytes: 8 * 1024 * 1024 * 1024, // 8GB
             max_cpu_cores: 4.0,
             max_pids: 512,
-            max_containers_per_challenge: 10,
-            max_containers_per_owner: 50,
+            max_containers_per_challenge: 100,
+            max_containers_per_owner: 200,
             allowed_mount_prefixes: vec!["/tmp/".to_string(), "/var/lib/platform/".to_string()],
             forbidden_mount_paths: forbidden,
             allow_privileged: false,
