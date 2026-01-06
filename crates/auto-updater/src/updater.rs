@@ -6,6 +6,8 @@ use bollard::Docker;
 use futures::StreamExt;
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(test)]
+use std::{future::Future, pin::Pin};
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
@@ -14,7 +16,18 @@ pub struct AutoUpdater {
     docker: Docker,
     watcher: Arc<VersionWatcher>,
     restart_sender: broadcast::Sender<RestartSignal>,
+    #[cfg(test)]
+    pull_hook: Option<PullHook>,
 }
+
+#[cfg(test)]
+type PullHook =
+    Arc<dyn Fn(&str) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> + Send + Sync>;
+
+#[cfg(test)]
+const SHUTDOWN_DELAY_SECS: u64 = 0;
+#[cfg(not(test))]
+const SHUTDOWN_DELAY_SECS: u64 = 5;
 
 impl AutoUpdater {
     pub async fn new(watcher: Arc<VersionWatcher>) -> anyhow::Result<Self> {
@@ -27,6 +40,8 @@ impl AutoUpdater {
             docker,
             watcher,
             restart_sender,
+            #[cfg(test)]
+            pull_hook: None,
         })
     }
 
@@ -92,10 +107,15 @@ impl AutoUpdater {
         // If mandatory, exit to trigger restart
         if requirement.mandatory {
             info!("Mandatory update - initiating graceful shutdown");
-            // Give time for cleanup
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            // Exit with code 0 - systemd/Docker will restart with new image
-            std::process::exit(0);
+                // Give time for cleanup
+                tokio::time::sleep(Duration::from_secs(SHUTDOWN_DELAY_SECS)).await;
+                // Exit with code 0 - systemd/Docker will restart with new image
+                #[cfg(not(test))]
+                std::process::exit(0);
+                #[cfg(test)]
+                {
+                    return Ok(());
+                }
         }
 
         Ok(())
@@ -103,6 +123,11 @@ impl AutoUpdater {
 
     /// Pull a Docker image
     async fn pull_image(&self, image: &str) -> anyhow::Result<()> {
+        #[cfg(test)]
+        if let Some(hook) = &self.pull_hook {
+            return (hook)(image).await;
+        }
+
         let options = CreateImageOptions {
             from_image: image,
             ..Default::default()
@@ -202,6 +227,8 @@ impl Default for GracefulShutdown {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::anyhow;
+    use std::sync::Mutex;
 
     #[test]
     fn test_restart_signal() {
@@ -223,5 +250,221 @@ mod tests {
         shutdown.trigger();
 
         assert!(rx.try_recv().is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_current_image_format() {
+        let watcher = Arc::new(crate::VersionWatcher::new(std::time::Duration::from_secs(
+            60,
+        )));
+        let updater = AutoUpdater {
+            docker: bollard::Docker::connect_with_local_defaults().unwrap(),
+            watcher: watcher.clone(),
+            restart_sender: tokio::sync::broadcast::channel(1).0,
+            pull_hook: None,
+        };
+        let image = updater.current_image();
+        assert!(image.starts_with("cortexlm/platform-validator:"));
+    }
+
+    #[tokio::test]
+    async fn test_check_and_update_no_update() {
+        let watcher = Arc::new(crate::VersionWatcher::new(std::time::Duration::from_secs(
+            60,
+        )));
+        let updater = AutoUpdater {
+            docker: bollard::Docker::connect_with_local_defaults().unwrap(),
+            watcher: watcher.clone(),
+            restart_sender: tokio::sync::broadcast::channel(1).0,
+            pull_hook: None,
+        };
+        let result = updater.check_and_update().await.unwrap();
+        matches!(
+            result,
+            UpdateResult::NoUpdateAvailable | UpdateResult::AlreadyUpToDate
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_already_up_to_date() {
+        let watcher = Arc::new(crate::VersionWatcher::new(std::time::Duration::from_secs(
+            60,
+        )));
+        let updater = AutoUpdater {
+            docker: bollard::Docker::connect_with_local_defaults().unwrap(),
+            watcher: watcher.clone(),
+            restart_sender: tokio::sync::broadcast::channel(1).0,
+            pull_hook: None,
+        };
+        let req = crate::UpdateRequirement {
+            min_version: crate::Version::current(),
+            recommended_version: crate::Version::current(),
+            docker_image: "test-image:latest".to_string(),
+            mandatory: false,
+            deadline_block: None,
+            release_notes: None,
+        };
+        let result = updater.handle_update(req).await;
+        assert!(result.is_ok());
+    }
+
+    fn future_version() -> Version {
+        let current = Version::current();
+        if current.patch < u32::MAX {
+            Version::new(current.major, current.minor, current.patch + 1)
+        } else if current.minor < u32::MAX {
+            Version::new(current.major, current.minor + 1, 0)
+        } else if current.major < u32::MAX {
+            Version::new(current.major + 1, 0, 0)
+        } else {
+            current
+        }
+    }
+
+    fn make_future_requirement(image: &str, mandatory: bool) -> UpdateRequirement {
+        let future = future_version();
+        UpdateRequirement {
+            min_version: future.clone(),
+            recommended_version: future,
+            docker_image: image.to_string(),
+            mandatory,
+            deadline_block: None,
+            release_notes: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_triggers_restart_signal() {
+        let watcher = Arc::new(crate::VersionWatcher::new(Duration::from_secs(60)));
+        let (sender, _) = broadcast::channel(4);
+        let mut updater = AutoUpdater {
+            docker: bollard::Docker::connect_with_local_defaults().unwrap(),
+            watcher,
+            restart_sender: sender,
+            pull_hook: None,
+        };
+
+        let pull_calls = Arc::new(Mutex::new(Vec::new()));
+        let hook_calls = pull_calls.clone();
+        updater.pull_hook = Some(Arc::new(move |image: &str| {
+            let hook_calls = hook_calls.clone();
+            let image = image.to_string();
+            Box::pin(async move {
+                hook_calls.lock().unwrap().push(image);
+                Ok(())
+            })
+        }));
+
+        let mut rx = updater.restart_sender.subscribe();
+        let requirement = make_future_requirement("test/image:1.0.0", false);
+
+        updater
+            .handle_update(requirement.clone())
+            .await
+            .expect("update should succeed");
+
+        let signal = rx.try_recv().expect("restart signal expected");
+        assert_eq!(signal.image, requirement.docker_image);
+        assert_eq!(signal.new_version, requirement.recommended_version);
+        assert!(!signal.mandatory);
+        assert_eq!(pull_calls.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_check_and_update_reports_updated() {
+        let watcher = Arc::new(crate::VersionWatcher::new(Duration::from_secs(60)));
+        let (sender, _) = broadcast::channel(4);
+        let mut updater = AutoUpdater {
+            docker: bollard::Docker::connect_with_local_defaults().unwrap(),
+            watcher: watcher.clone(),
+            restart_sender: sender,
+            pull_hook: None,
+        };
+
+        let pull_calls = Arc::new(Mutex::new(Vec::new()));
+        let hook_calls = pull_calls.clone();
+        updater.pull_hook = Some(Arc::new(move |image: &str| {
+            let hook_calls = hook_calls.clone();
+            let image = image.to_string();
+            Box::pin(async move {
+                hook_calls.lock().unwrap().push(image);
+                Ok(())
+            })
+        }));
+
+        let requirement = make_future_requirement("test/image:2.0.0", false);
+        watcher.on_version_update(requirement.clone());
+
+        let result = updater
+            .check_and_update()
+            .await
+            .expect("update should succeed");
+
+        match result {
+            UpdateResult::Updated { from, to, image } => {
+                assert_eq!(from, Version::current());
+                assert_eq!(to, requirement.recommended_version);
+                assert_eq!(image, requirement.docker_image);
+            }
+            _ => panic!("expected Updated result"),
+        }
+
+        assert_eq!(pull_calls.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_mandatory_triggers_shutdown() {
+        let watcher = Arc::new(crate::VersionWatcher::new(Duration::from_secs(60)));
+        let (sender, _) = broadcast::channel(4);
+        let mut updater = AutoUpdater {
+            docker: bollard::Docker::connect_with_local_defaults().unwrap(),
+            watcher,
+            restart_sender: sender,
+            pull_hook: None,
+        };
+
+        let pull_calls = Arc::new(Mutex::new(Vec::new()));
+        let hook_calls = pull_calls.clone();
+        updater.pull_hook = Some(Arc::new(move |image: &str| {
+            let hook_calls = hook_calls.clone();
+            let image = image.to_string();
+            Box::pin(async move {
+                hook_calls.lock().unwrap().push(image);
+                Ok(())
+            })
+        }));
+
+        let mut rx = updater.restart_sender.subscribe();
+        let requirement = make_future_requirement("test/image:mandatory", true);
+
+        updater
+            .handle_update(requirement.clone())
+            .await
+            .expect("mandatory update should succeed");
+
+        let signal = rx.try_recv().expect("restart signal expected");
+        assert!(signal.mandatory);
+        assert_eq!(signal.image, requirement.docker_image);
+        assert_eq!(pull_calls.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_propagates_pull_error() {
+        let watcher = Arc::new(crate::VersionWatcher::new(Duration::from_secs(60)));
+        let (sender, _) = broadcast::channel(4);
+        let mut updater = AutoUpdater {
+            docker: bollard::Docker::connect_with_local_defaults().unwrap(),
+            watcher,
+            restart_sender: sender,
+            pull_hook: None,
+        };
+
+        updater.pull_hook = Some(Arc::new(|_| {
+            Box::pin(async { Err(anyhow!("pull failed")) })
+        }));
+
+        let requirement = make_future_requirement("test/image:error", false);
+        let result = updater.handle_update(requirement).await;
+        assert!(result.is_err());
     }
 }
