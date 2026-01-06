@@ -656,7 +656,9 @@ impl DockerClient {
 
         // Generate a JWT token for this challenge
         // Token includes challenge_id and validator_hotkey for authorization
-        let challenge_id = config.challenge_id.to_string();
+        // Use config.name (human-readable challenge name) instead of config.challenge_id (UUID)
+        // This ensures JWT matches the challenge_id sent by the challenge container
+        let challenge_id = config.name.to_string();
         let owner_id = std::env::var("VALIDATOR_HOTKEY").unwrap_or_else(|_| "unknown".to_string());
 
         // Use secure_container_runtime to generate token (3600s = 1 hour TTL)
