@@ -71,4 +71,30 @@ mod tests {
         assert_eq!(config.network_name, "platform-network");
         assert_eq!(config.health_check_interval, Duration::from_secs(30));
     }
+
+    #[test]
+    fn test_config_serializes_durations_as_seconds() {
+        let config = OrchestratorConfig {
+            network_name: "custom".into(),
+            health_check_interval: Duration::from_secs(45),
+            stop_timeout: Duration::from_secs(120),
+            registry: Some(RegistryConfig {
+                url: "https://registry.example.com".into(),
+                username: Some("alice".into()),
+                password: Some("secret".into()),
+            }),
+        };
+
+        let json = serde_json::to_value(&config).expect("serialize config");
+        assert_eq!(json["health_check_interval"], 45);
+        assert_eq!(json["stop_timeout"], 120);
+
+        let round_trip: OrchestratorConfig = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(round_trip.health_check_interval, Duration::from_secs(45));
+        assert_eq!(round_trip.stop_timeout, Duration::from_secs(120));
+        assert_eq!(
+            round_trip.registry.unwrap().username.as_deref(),
+            Some("alice")
+        );
+    }
 }

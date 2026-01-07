@@ -976,6 +976,15 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_is_image_allowed_case_insensitive() {
+        reset_env(&["DEVELOPMENT_MODE"]);
+        assert!(DockerClient::is_image_allowed(
+            "GHCR.IO/PLATFORMNETWORK/IMAGE:TAG"
+        ));
+    }
+
+    #[test]
+    #[serial]
     fn test_get_validator_suffix_prefers_validator_name() {
         reset_env(&["VALIDATOR_NAME", "HOSTNAME"]);
         std::env::set_var("VALIDATOR_NAME", "Node 42-Test");
@@ -1018,5 +1027,19 @@ pub struct CleanupResult {
 impl CleanupResult {
     pub fn success(&self) -> bool {
         self.errors.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::CleanupResult;
+
+    #[test]
+    fn test_cleanup_result_success_flag() {
+        let mut result = CleanupResult::default();
+        assert!(result.success());
+
+        result.errors.push("boom".into());
+        assert!(!result.success());
     }
 }

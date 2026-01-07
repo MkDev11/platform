@@ -278,4 +278,33 @@ mod tests {
         assert_eq!(ids.len(), 1);
         assert_eq!(ids[0], unhealthy_id);
     }
+
+    #[test]
+    fn test_health_monitor_summary_counts_statuses() {
+        let challenges = Arc::new(RwLock::new(HashMap::new()));
+        {
+            let mut guard = challenges.write();
+            guard.insert(
+                ChallengeId::new(),
+                sample_instance(ContainerStatus::Running),
+            );
+            guard.insert(
+                ChallengeId::new(),
+                sample_instance(ContainerStatus::Unhealthy),
+            );
+            guard.insert(
+                ChallengeId::new(),
+                sample_instance(ContainerStatus::Starting),
+            );
+        }
+
+        let monitor = HealthMonitor::new(challenges, Duration::from_secs(5));
+        let summary = monitor.summary();
+
+        assert_eq!(summary.total, 3);
+        assert_eq!(summary.running, 1);
+        assert_eq!(summary.unhealthy, 1);
+        assert_eq!(summary.starting, 1);
+        assert_eq!(summary.stopped, 0);
+    }
 }
