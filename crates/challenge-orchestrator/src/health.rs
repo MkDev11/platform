@@ -205,6 +205,8 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     fn sample_instance(status: ContainerStatus) -> ChallengeInstance {
         ChallengeInstance {
@@ -306,5 +308,87 @@ mod tests {
         assert_eq!(summary.unhealthy, 1);
         assert_eq!(summary.starting, 1);
         assert_eq!(summary.stopped, 0);
+    }
+
+    async fn spawn_health_server(
+        status_line: &str,
+        body: &str,
+    ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind local server");
+        let addr = listener.local_addr().expect("read addr");
+        let body = body.to_string();
+        let response = format!(
+            "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(), body
+        );
+
+        let handle = tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+
+        (addr, handle)
+    }
+
+    #[tokio::test]
+    async fn test_health_monitor_check_sets_running_on_success() {
+        let (addr, handle) = spawn_health_server("200 OK", r#"{"status":"ok"}"#).await;
+        let challenges = Arc::new(RwLock::new(HashMap::new()));
+        let mut instance = sample_instance(ContainerStatus::Starting);
+        instance.endpoint = format!("http://{}", addr);
+        let challenge_id = instance.challenge_id;
+        challenges.write().insert(challenge_id, instance);
+
+        let monitor = HealthMonitor::new(challenges.clone(), Duration::from_secs(5));
+        let status = monitor
+            .check(&challenge_id)
+            .await
+            .expect("status should be returned");
+
+        assert_eq!(status, ContainerStatus::Running);
+        assert_eq!(
+            challenges
+                .read()
+                .get(&challenge_id)
+                .expect("challenge present")
+                .status,
+            ContainerStatus::Running
+        );
+
+        handle.await.expect("server finished");
+    }
+
+    #[tokio::test]
+    async fn test_health_monitor_check_marks_unhealthy_on_failure() {
+        let (addr, handle) =
+            spawn_health_server("500 Internal Server Error", r#"{"status":"error"}"#).await;
+        let challenges = Arc::new(RwLock::new(HashMap::new()));
+        let mut instance = sample_instance(ContainerStatus::Running);
+        instance.endpoint = format!("http://{}", addr);
+        let challenge_id = instance.challenge_id;
+        challenges.write().insert(challenge_id, instance);
+
+        let monitor = HealthMonitor::new(challenges.clone(), Duration::from_secs(5));
+        let status = monitor
+            .check(&challenge_id)
+            .await
+            .expect("status should be returned");
+
+        assert_eq!(status, ContainerStatus::Unhealthy);
+        assert_eq!(
+            challenges
+                .read()
+                .get(&challenge_id)
+                .expect("challenge present")
+                .status,
+            ContainerStatus::Unhealthy
+        );
+
+        handle.await.expect("server finished");
     }
 }

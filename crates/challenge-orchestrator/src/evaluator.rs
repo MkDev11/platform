@@ -274,6 +274,9 @@ mod tests {
     use platform_core::ChallengeId;
     use std::collections::HashMap;
     use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::task::JoinHandle;
     use tokio_test::block_on;
 
     fn sample_instance(status: ContainerStatus) -> ChallengeInstance {
@@ -357,5 +360,199 @@ mod tests {
 
         assert_eq!(status_map.get(&id_a), Some(&ContainerStatus::Running));
         assert_eq!(status_map.get(&id_b), Some(&ContainerStatus::Unhealthy));
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_generic_succeeds_with_ok_response() {
+        let (addr, handle) =
+            spawn_static_http_server("200 OK", r#"{"value": 42}"#, "application/json").await;
+        let endpoint = format!("http://{}", addr);
+        let (evaluator, challenge_id) = evaluator_with_instance(endpoint, ContainerStatus::Running);
+
+        let response = evaluator
+            .evaluate_generic(challenge_id, serde_json::json!({"input": 1}), Some(5))
+            .await
+            .expect("evaluation succeeds");
+
+        assert_eq!(response["value"], 42);
+        handle.await.expect("server finished");
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_generic_reports_challenge_error() {
+        let (addr, handle) =
+            spawn_static_http_server("500 Internal Server Error", "boom", "text/plain").await;
+        let endpoint = format!("http://{}", addr);
+        let (evaluator, challenge_id) = evaluator_with_instance(endpoint, ContainerStatus::Running);
+
+        let err = evaluator
+            .evaluate_generic(challenge_id, serde_json::json!({}), Some(5))
+            .await
+            .expect_err("should propagate challenge error");
+
+        match err {
+            EvaluatorError::ChallengeError { status, message } => {
+                assert_eq!(status, 500);
+                assert_eq!(message, "boom");
+            }
+            other => panic!("unexpected error: {:?}", other),
+        }
+
+        handle.await.expect("server finished");
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_generic_reports_parse_error() {
+        let (addr, handle) = spawn_static_http_server("200 OK", "not json", "text/plain").await;
+        let endpoint = format!("http://{}", addr);
+        let (evaluator, challenge_id) = evaluator_with_instance(endpoint, ContainerStatus::Running);
+
+        let err = evaluator
+            .evaluate_generic(challenge_id, serde_json::json!({}), Some(5))
+            .await
+            .expect_err("invalid JSON should error");
+
+        assert!(matches!(err, EvaluatorError::ParseError(_)));
+
+        handle.await.expect("server finished");
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_generic_reports_network_error() {
+        let (addr, handle) = spawn_drop_http_server().await;
+        let endpoint = format!("http://{}", addr);
+        let (evaluator, challenge_id) = evaluator_with_instance(endpoint, ContainerStatus::Running);
+
+        let err = evaluator
+            .evaluate_generic(challenge_id, serde_json::json!({}), Some(1))
+            .await
+            .expect_err("network failure should bubble up");
+
+        assert!(matches!(err, EvaluatorError::NetworkError(_)));
+        handle.await.expect("server finished");
+    }
+
+    #[tokio::test]
+    async fn test_proxy_request_returns_payload() {
+        let (addr, handle) =
+            spawn_static_http_server("200 OK", r#"{"ok":true}"#, "application/json").await;
+        let endpoint = format!("http://{}", addr);
+        let (evaluator, challenge_id) = evaluator_with_instance(endpoint, ContainerStatus::Running);
+
+        let response = evaluator
+            .proxy_request(
+                challenge_id,
+                "custom/path",
+                reqwest::Method::POST,
+                Some(serde_json::json!({"payload": true})),
+                Some(5),
+            )
+            .await
+            .expect("proxy request succeeds");
+
+        assert_eq!(response["ok"], true);
+        handle.await.expect("server finished");
+    }
+
+    #[tokio::test]
+    async fn test_get_info_fetches_metadata() {
+        let body = r#"{"name":"demo","version":"0.1.0","mechanism_id":7}"#;
+        let (addr, handle) = spawn_static_http_server("200 OK", body, "application/json").await;
+        let endpoint = format!("http://{}", addr);
+        let (evaluator, challenge_id) = evaluator_with_instance(endpoint, ContainerStatus::Running);
+
+        let info = evaluator
+            .get_info(challenge_id)
+            .await
+            .expect("info should deserialize");
+
+        assert_eq!(info.name, "demo");
+        assert_eq!(info.version, "0.1.0");
+        assert_eq!(info.mechanism_id, 7);
+        handle.await.expect("server finished");
+    }
+
+    #[tokio::test]
+    async fn test_check_health_reflects_status_code() {
+        let (addr_ok, handle_ok) =
+            spawn_static_http_server("200 OK", "{}", "application/json").await;
+        let (evaluator, ok_id) =
+            evaluator_with_instance(format!("http://{}", addr_ok), ContainerStatus::Running);
+
+        assert!(evaluator
+            .check_health(ok_id)
+            .await
+            .expect("health request succeeds"));
+        handle_ok.await.expect("server finished");
+
+        let (addr_err, handle_err) =
+            spawn_static_http_server("503 Service Unavailable", "oops", "text/plain").await;
+        let (evaluator, fail_id) =
+            evaluator_with_instance(format!("http://{}", addr_err), ContainerStatus::Running);
+
+        assert!(!evaluator
+            .check_health(fail_id)
+            .await
+            .expect("health request succeeds"));
+        handle_err.await.expect("server finished");
+    }
+
+    fn evaluator_with_instance(
+        endpoint: String,
+        status: ContainerStatus,
+    ) -> (ChallengeEvaluator, ChallengeId) {
+        let challenges = Arc::new(RwLock::new(HashMap::new()));
+        let mut instance = sample_instance(status);
+        instance.endpoint = endpoint;
+        let challenge_id = instance.challenge_id;
+        challenges.write().insert(challenge_id, instance);
+        (ChallengeEvaluator::new(challenges), challenge_id)
+    }
+
+    async fn spawn_static_http_server(
+        status_line: &str,
+        body: &str,
+        content_type: &str,
+    ) -> (std::net::SocketAddr, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind local server");
+        let addr = listener.local_addr().expect("read addr");
+        let body = body.to_string();
+        let content_type = content_type.to_string();
+        let status_line = status_line.to_string();
+
+        let handle = tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(), body,
+                    status = status_line,
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+
+        (addr, handle)
+    }
+
+    async fn spawn_drop_http_server() -> (std::net::SocketAddr, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind local server");
+        let addr = listener.local_addr().expect("read addr");
+
+        let handle = tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+                // Drop connection without responding to trigger client-side network error.
+            }
+        });
+
+        (addr, handle)
     }
 }

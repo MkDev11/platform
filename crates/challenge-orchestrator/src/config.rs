@@ -73,6 +73,13 @@ mod tests {
     }
 
     #[test]
+    fn test_default_config_stop_timeout_and_registry() {
+        let config = OrchestratorConfig::default();
+        assert_eq!(config.stop_timeout, Duration::from_secs(30));
+        assert!(config.registry.is_none());
+    }
+
+    #[test]
     fn test_config_serializes_durations_as_seconds() {
         let config = OrchestratorConfig {
             network_name: "custom".into(),
@@ -96,5 +103,37 @@ mod tests {
             round_trip.registry.unwrap().username.as_deref(),
             Some("alice")
         );
+    }
+
+    #[test]
+    fn test_humantime_deserialize_rejects_negative_values() {
+        #[derive(Debug, Deserialize)]
+        struct DurationWrapper {
+            #[serde(with = "super::humantime_serde")]
+            value: Duration,
+        }
+
+        let err = serde_json::from_str::<DurationWrapper>(r#"{"value": -5}"#)
+            .expect_err("negative durations rejected");
+        assert!(err.to_string().contains("invalid value"));
+    }
+
+    #[test]
+    fn test_humantime_serializes_large_values() {
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        struct DurationWrapper {
+            #[serde(with = "super::humantime_serde")]
+            value: Duration,
+        }
+
+        let original = DurationWrapper {
+            value: Duration::from_secs(24 * 60 * 60),
+        };
+        let json = serde_json::to_string(&original).expect("serialize duration wrapper");
+        assert!(json.contains("86400"));
+
+        let round_trip: DurationWrapper =
+            serde_json::from_str(&json).expect("deserialize duration wrapper");
+        assert_eq!(round_trip, original);
     }
 }
