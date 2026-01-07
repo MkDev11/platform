@@ -43,7 +43,6 @@ pub use health::*;
 pub use lifecycle::*;
 use parking_lot::RwLock;
 use platform_core::ChallengeId;
-use serial_test::serial;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -373,6 +372,7 @@ mod tests {
     use chrono::Utc;
     use futures::{stream, Stream};
     use platform_core::ChallengeId;
+    use serial_test::serial;
     use std::collections::HashMap;
     use std::pin::Pin;
     use std::sync::atomic::{AtomicUsize, Ordering};
