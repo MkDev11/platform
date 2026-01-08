@@ -949,12 +949,21 @@ mod tests {
         let sudo_key = engine.keypair.hotkey();
 
         let config = platform_core::ChallengeContainerConfig::new("", "", 1, 0.5);
+        let challenge_id = config.challenge_id;
 
         let action = SudoAction::AddChallenge { config };
         let proposal = Proposal::new(ProposalAction::Sudo(action), sudo_key.clone(), 0);
 
         let result = engine.handle_proposal(proposal, &sudo_key).await;
+        // Invalid config is accepted (doesn't error) but internally voted NO
         assert!(result.is_ok());
+
+        // Verify the invalid config was NOT added to chain state
+        assert!(!engine
+            .chain_state
+            .read()
+            .challenge_configs
+            .contains_key(&challenge_id));
     }
 
     #[tokio::test]

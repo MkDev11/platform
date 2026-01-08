@@ -1204,6 +1204,37 @@ mod tests {
         (kp, stake)
     }
 
+    // Test-only helpers to reduce coupling to internal fields
+    impl StakeGovernance {
+        #[cfg(test)]
+        fn mark_expired_for_test(&self, proposal_id: Uuid) {
+            if let Some(proposal) = self.proposals.write().get_mut(&proposal_id) {
+                proposal.expires_at = Utc::now() - Duration::hours(1);
+            }
+        }
+
+        #[cfg(test)]
+        fn mark_executed_for_test(&self, proposal_id: Uuid) {
+            if let Some(proposal) = self.proposals.write().get_mut(&proposal_id) {
+                proposal.executed = true;
+            }
+        }
+
+        #[cfg(test)]
+        fn mark_cancelled_for_test(&self, proposal_id: Uuid) {
+            if let Some(proposal) = self.proposals.write().get_mut(&proposal_id) {
+                proposal.cancelled = true;
+            }
+        }
+
+        #[cfg(test)]
+        fn set_rate_limit_for_test(&self, hotkey: &Hotkey, count: usize, timestamp: DateTime<Utc>) {
+            self.proposal_counts
+                .write()
+                .insert(hotkey.clone(), (timestamp, count));
+        }
+    }
+
     #[test]
     fn test_is_subnet_owner() {
         let owner = subnet_owner_hotkey();
@@ -1575,7 +1606,7 @@ mod tests {
         let (kp, stake) = create_test_validator(1_000_000_000_000);
         gov.update_validator_stakes(vec![stake]);
 
-        let mut proposal = gov
+        let proposal = gov
             .create_proposal(
                 GovernanceActionType::UpdateConfig,
                 "Test".to_string(),
@@ -1586,9 +1617,8 @@ mod tests {
             )
             .unwrap();
 
-        // Manually expire the proposal
-        proposal.expires_at = chrono::Utc::now() - chrono::Duration::hours(1);
-        gov.proposals.write().insert(proposal.id, proposal.clone());
+        // Mark proposal as expired using helper
+        gov.mark_expired_for_test(proposal.id);
 
         let result = gov.vote(proposal.id, &kp.hotkey(), true, &kp);
         assert!(matches!(
@@ -1605,7 +1635,7 @@ mod tests {
         let (kp, stake) = create_test_validator(1_000_000_000_000);
         gov.update_validator_stakes(vec![stake]);
 
-        let mut proposal = gov
+        let proposal = gov
             .create_proposal(
                 GovernanceActionType::UpdateConfig,
                 "Test".to_string(),
@@ -1616,9 +1646,8 @@ mod tests {
             )
             .unwrap();
 
-        // Mark as executed
-        proposal.executed = true;
-        gov.proposals.write().insert(proposal.id, proposal.clone());
+        // Mark as executed using helper
+        gov.mark_executed_for_test(proposal.id);
 
         let result = gov.vote(proposal.id, &kp.hotkey(), true, &kp);
         assert!(result.is_err());
@@ -1632,7 +1661,7 @@ mod tests {
         let (kp, stake) = create_test_validator(1_000_000_000_000);
         gov.update_validator_stakes(vec![stake]);
 
-        let mut proposal = gov
+        let proposal = gov
             .create_proposal(
                 GovernanceActionType::UpdateConfig,
                 "Test".to_string(),
@@ -1643,9 +1672,8 @@ mod tests {
             )
             .unwrap();
 
-        // Mark as cancelled
-        proposal.cancelled = true;
-        gov.proposals.write().insert(proposal.id, proposal.clone());
+        // Mark as cancelled using helper
+        gov.mark_cancelled_for_test(proposal.id);
 
         let result = gov.vote(proposal.id, &kp.hotkey(), true, &kp);
         assert!(matches!(
@@ -1920,7 +1948,7 @@ mod tests {
         let (kp, stake) = create_test_validator(1_000_000_000_000);
         gov.update_validator_stakes(vec![stake]);
 
-        let mut proposal = gov
+        let proposal = gov
             .create_proposal(
                 GovernanceActionType::UpdateConfig,
                 "Test".to_string(),
@@ -1931,9 +1959,8 @@ mod tests {
             )
             .unwrap();
 
-        // Manually expire
-        proposal.expires_at = chrono::Utc::now() - chrono::Duration::hours(1);
-        gov.proposals.write().insert(proposal.id, proposal.clone());
+        // Mark as expired using helper
+        gov.mark_expired_for_test(proposal.id);
 
         gov.cleanup_expired();
 
@@ -1993,11 +2020,9 @@ mod tests {
         );
         assert!(result.is_ok());
 
-        // Manually reset the counter date to yesterday
+        // Set rate limit to yesterday using helper
         let yesterday = chrono::Utc::now() - chrono::Duration::days(1);
-        gov.proposal_counts
-            .write()
-            .insert(kp.hotkey(), (yesterday, 1));
+        gov.set_rate_limit_for_test(&kp.hotkey(), 1, yesterday);
 
         // Should be able to create another proposal (counter reset)
         let result = gov.create_proposal(

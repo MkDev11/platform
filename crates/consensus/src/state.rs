@@ -440,13 +440,14 @@ mod tests {
 
         let proposal_id = state.start_round(proposal);
 
-        // Add one approve vote - should update phase
+        // Add one approve vote - should update phase to Prepare
         let voter = Keypair::generate();
         let vote = Vote::approve(proposal_id, voter.hotkey());
         state.add_vote(vote);
 
-        // Round should still be active and phase updated
+        // Round should still be active and phase should be updated to Prepare
         let round = state.get_round(&proposal_id);
         assert!(round.is_some());
+        assert_eq!(round.unwrap().phase, ConsensusPhase::Prepare);
     }
 }

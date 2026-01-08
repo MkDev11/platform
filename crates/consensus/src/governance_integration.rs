@@ -230,6 +230,14 @@ pub enum SudoExecutionResult {
 }
 
 /// Convert SudoAction to GovernanceActionType
+///
+/// Note: Some SudoActions are intentionally mapped to the same GovernanceActionType
+/// for governance classification and rate-limiting purposes:
+/// - `SetMechanismConfig` → `SetMechanismBurnRate` (both are mechanism parameter changes)
+/// - `RefreshChallenges` → `UpdateChallenge` (both affect challenge state)
+///
+/// This aliasing is intentional to group related actions. If per-action visibility
+/// or separate rate limits are needed in the future, add new GovernanceActionType variants.
 fn sudo_action_to_governance_type(action: &SudoAction) -> GovernanceActionType {
     match action {
         SudoAction::UpdateConfig { .. } => GovernanceActionType::UpdateConfig,
@@ -238,6 +246,7 @@ fn sudo_action_to_governance_type(action: &SudoAction) -> GovernanceActionType {
         SudoAction::RemoveChallenge { .. } => GovernanceActionType::RemoveChallenge,
         SudoAction::SetChallengeWeight { .. } => GovernanceActionType::SetChallengeWeight,
         SudoAction::SetMechanismBurnRate { .. } => GovernanceActionType::SetMechanismBurnRate,
+        // Intentional aliasing: mechanism config changes grouped with burn rate changes
         SudoAction::SetMechanismConfig { .. } => GovernanceActionType::SetMechanismBurnRate,
         SudoAction::SetRequiredVersion { .. } => GovernanceActionType::SetRequiredVersion,
         SudoAction::AddValidator { .. } => GovernanceActionType::AddValidator,
@@ -245,7 +254,8 @@ fn sudo_action_to_governance_type(action: &SudoAction) -> GovernanceActionType {
         SudoAction::EmergencyPause { .. } => GovernanceActionType::EmergencyPause,
         SudoAction::Resume => GovernanceActionType::Resume,
         SudoAction::ForceStateUpdate { .. } => GovernanceActionType::ForceStateUpdate,
-        SudoAction::RefreshChallenges { .. } => GovernanceActionType::UpdateChallenge, // Reuse UpdateChallenge type
+        // Intentional aliasing: refresh operations grouped with update operations
+        SudoAction::RefreshChallenges { .. } => GovernanceActionType::UpdateChallenge,
     }
 }
 
