@@ -1,5 +1,89 @@
 # Changelog
 
+## [0.2.1](https://github.com/PlatformNetwork/platform/compare/v0.2.0...v0.2.1) (2026-01-09)
+
+
+### Features
+
+* add container broker to platform-server ([4772327](https://github.com/PlatformNetwork/platform/commit/47723278a21f2a4b5dfbceb56d1966d67b142c70))
+* add tempo fetching from Bittensor chain ([e455e29](https://github.com/PlatformNetwork/platform/commit/e455e29a6266a2a8adf626c086b41c96863a1605))
+* add WsContainerClient for WebSocket broker access ([58c8618](https://github.com/PlatformNetwork/platform/commit/58c861855ed2c8114c9e69e06097aba8f7dae0ff))
+* auto-generate random BROKER_JWT_SECRET if not provided ([d7be22b](https://github.com/PlatformNetwork/platform/commit/d7be22bfe9d5cf19aaffef496fe5fc3e424fd9dc))
+* auto-pull images in broker when creating containers ([f0ef63d](https://github.com/PlatformNetwork/platform/commit/f0ef63df4ac3c0815da932d1002ed8e1501c86f0))
+* **broker:** add image build support via Build command ([6da49e2](https://github.com/PlatformNetwork/platform/commit/6da49e2550c12565b2fe347252dcd240f0043145))
+* CI publish HTML test coverage report to GitHub Pages ([299d25a](https://github.com/PlatformNetwork/platform/commit/299d25ab7851831e3e33fa5eb0bdb17a8d6a905e))
+* CI publish HTML test coverage report to GitHub Pages ([1155c72](https://github.com/PlatformNetwork/platform/commit/1155c721eba7a8820315ae6afad666eb89046558))
+* Docker-in-Docker support with named volumes and CopyFrom/CopyTo protocol ([e56a639](https://github.com/PlatformNetwork/platform/commit/e56a639a181ee24f56f6ab4fdfece577593e935c))
+* enable debug logging for challenges and broker ([1db95e6](https://github.com/PlatformNetwork/platform/commit/1db95e6c7aeccfa3e21100fdd7011f6fb083cf1d))
+* Improve auto-updater coverage and fix CI coverage command ([d9183f2](https://github.com/PlatformNetwork/platform/commit/d9183f2bff80e627f5199dce076d4fd1a1bde8ef))
+* Improve auto-updater coverage and fix CI coverage command ([19a6e0d](https://github.com/PlatformNetwork/platform/commit/19a6e0d00aaaf9234066e16f70b6db2f9fbe1ace))
+* remove image whitelist by default, allow all public images ([0d30bfa](https://github.com/PlatformNetwork/platform/commit/0d30bfada92015a5e8f2ac75863a2d092fd5c7d3))
+* validator metrics reporting (CPU/RAM) with 5s interval and in-memory cache ([f06e67d](https://github.com/PlatformNetwork/platform/commit/f06e67da58de13887591c1c4223ec9a7f71ba5b6))
+
+
+### Bug Fixes
+
+* add PLATFORM_PUBLIC_URL to validator docker-compose ([c70f755](https://github.com/PlatformNetwork/platform/commit/c70f755408005b00446dfeb934430bf02b51ca09))
+* **consensus:** improve test accuracy for zero-stake scenarios ([de9d492](https://github.com/PlatformNetwork/platform/commit/de9d4921e27025f4d20cb483bc0761dd6175eb5b))
+* default PLATFORM_PUBLIC_URL to chain.platform.network ([a980e47](https://github.com/PlatformNetwork/platform/commit/a980e47ec2ca46dd0296abb6f7ad4ca8c240e119))
+* export VALIDATOR_HOTKEY and VALIDATOR_SECRET_KEY as env vars ([eb3065c](https://github.com/PlatformNetwork/platform/commit/eb3065c73819384d7777a278c3ca240e20eeefb6))
+* handle auth message even when JWT validation is disabled ([19e9d1f](https://github.com/PlatformNetwork/platform/commit/19e9d1f6c8e0d202db8e7b4b3c58698981b90abd))
+* increase broker JWT TTL to 10 years to prevent ExpiredSignature errors ([94682da](https://github.com/PlatformNetwork/platform/commit/94682daed18fb6c0264edddb6f6caceeb47e54c0))
+* increase container limits and add startup cleanup ([9387864](https://github.com/PlatformNetwork/platform/commit/93878641b9dc6031acace439847d85defd95d793))
+* integer overflow in calculation ([138fbf9](https://github.com/PlatformNetwork/platform/commit/138fbf908d8ec619406c9f72b409ebd239154ed9))
+* integer overflow in calculation ([534c7f9](https://github.com/PlatformNetwork/platform/commit/534c7f995d6ce475fbbb766dc2232b947f77411b))
+* pass CHALLENGE_UUID env var for broker authentication ([d88bfe5](https://github.com/PlatformNetwork/platform/commit/d88bfe5e15ccd18f75dd81ed5ee9eb0a79e6b0de))
+* remove restrictive cap_drop from container broker, add user field ([372641c](https://github.com/PlatformNetwork/platform/commit/372641ca437daa1ee6b2d32b8b1b86cf3ae6a711))
+* reorder validator routes - static paths before :hotkey parameter ([6ffb7ca](https://github.com/PlatformNetwork/platform/commit/6ffb7cadc65f90411b09c9d2e44309f2dc666535))
+* update tests to use strict() policy for image whitelist tests ([fb63e63](https://github.com/PlatformNetwork/platform/commit/fb63e63871da1830229f8ade4dfc22ef5459acac))
+* use actual hostname as fallback for broker URL ([351b657](https://github.com/PlatformNetwork/platform/commit/351b6571036f0853ae40d522f07079ced43e0c79))
+* use challenge name (not UUID) for JWT token generation ([8ecab04](https://github.com/PlatformNetwork/platform/commit/8ecab04badd85532cebd9ef380b90323d97ddfdc))
+
+
+### Code Refactoring
+
+* **consensus:** address code review feedback ([10a5394](https://github.com/PlatformNetwork/platform/commit/10a53945b5cdf73dd27760ecce0be5fa6aeacaec))
+
+
+### Documentation
+
+* update README to reflect centralized architecture ([4bc8313](https://github.com/PlatformNetwork/platform/commit/4bc83130134dd5162976cc61e00cb770c2d3b37e))
+
+
+### Miscellaneous
+
+* remove unused import ([13b55b1](https://github.com/PlatformNetwork/platform/commit/13b55b1c0ee8ed7d6d841dab181c722b7430a25b))
+* update doc string ([8245dab](https://github.com/PlatformNetwork/platform/commit/8245dab16cc5ad8c6f610f435036946229424db5))
+* version up serial_test ([926598c](https://github.com/PlatformNetwork/platform/commit/926598c04d95d5c6ae80c17363eeafc4cacc0cb2))
+
+
+### Tests
+
+* **auto-updater:** add helper-backed coverage tests ([f572dd8](https://github.com/PlatformNetwork/platform/commit/f572dd8be5dcf59d62fa467725bf55e6380a4c27))
+* broaden platform-bittensor coverage ([add3be8](https://github.com/PlatformNetwork/platform/commit/add3be8ada943e9179a8bb7306afebeb9640a53c))
+* **challenge-orchestrator:** add env and helper coverage ([a97b84e](https://github.com/PlatformNetwork/platform/commit/a97b84eaa5f0ae651c5e2c3f5326d4db396f9d08))
+* **challenge-orchestrator:** broaden orchestrator, lifecycle, evaluator, and health coverage ([ed67e29](https://github.com/PlatformNetwork/platform/commit/ed67e297c08b8824b2eb9aabd709e99144cc101c))
+* **challenge-orchestrator:** expand config/health/evaluator coverage ([3c30e6b](https://github.com/PlatformNetwork/platform/commit/3c30e6b631682af637d7f9bdbf23d4c7f082acaa))
+* **challenge-sdk:** Add comprehensive test coverage ([168d03d](https://github.com/PlatformNetwork/platform/commit/168d03d3e9cc967ee503485f8ad33ca13622746d))
+* **challenge-sdk:** Add comprehensive test coverage for challenge SDK modules ([6dd0d55](https://github.com/PlatformNetwork/platform/commit/6dd0d5585cdeacda9f026bb66134e1bf4438003a))
+* **challenge-sdk:** Add database persistence test across reopens ([b7a7984](https://github.com/PlatformNetwork/platform/commit/b7a7984c35664378a35801b225531b373ea638d5))
+* **challenge-sdk:** enhance multi-agent testing in get_latest_results ([ddf89c0](https://github.com/PlatformNetwork/platform/commit/ddf89c0788f19197ba432470efa9ba543880f9fb))
+* **consensus:** add comprehensive test coverage for consensus module ([fe39408](https://github.com/PlatformNetwork/platform/commit/fe39408c27b02b2b984b8397a9e6abc20c58958c))
+* **consensus:** comprehensive coverage improvements for platform-consensus ([7d96ec8](https://github.com/PlatformNetwork/platform/commit/7d96ec8a6829c51ae91ec0b6b8e07ff1601374c4))
+* **distributed-db:** Achieve 97% test coverage across all modules ([982c67c](https://github.com/PlatformNetwork/platform/commit/982c67c4e7faa7c90c8539f4f3185b4544601ef1))
+* **distributed-db:** Achieve 97% test coverage across all modules ([1946fd6](https://github.com/PlatformNetwork/platform/commit/1946fd6e2c8c60949f8b4e6a78658e8b7f966db1))
+* **distributed-db:** consolidate test helpers and fix code review issues ([d2dade0](https://github.com/PlatformNetwork/platform/commit/d2dade00e83ebf661b340e7c3364ef17463a4e47))
+* **epoch:** add comprehensive unit tests achieving 95%+ coverage ([ceb4984](https://github.com/PlatformNetwork/platform/commit/ceb49845f4bfe5eedb1c6555331c48051fdf3359))
+* **epoch:** add comprehensive unit tests achieving 95%+ coverage ([4e96e50](https://github.com/PlatformNetwork/platform/commit/4e96e50c2f9c6ab3e8952961b3231ee0f56d6607))
+* expand bittensor helper coverage ([e6c4950](https://github.com/PlatformNetwork/platform/commit/e6c49505b169bce1d2c6dc1e48166272ec70b50d))
+* **platform-core:** Add comprehensive test coverage for core module ([446af5a](https://github.com/PlatformNetwork/platform/commit/446af5a7cfd01bf42ce1365ad1238a7c3a749a3c))
+* **platform-server:** add comprehensive unit tests ([8ebc662](https://github.com/PlatformNetwork/platform/commit/8ebc66281f7bc30ba74f2da9008efe04b143fccd))
+* **platform-server:** add comprehensive unit tests ([551a4f4](https://github.com/PlatformNetwork/platform/commit/551a4f4147789caaa0c361d0ec9ea395fc403666))
+* **platform-server:** improve test quality and reduce duplication ([5726879](https://github.com/PlatformNetwork/platform/commit/57268791d2fc4a4428c60cc942efd4fad7365e17))
+* **rpc:** add comprehensive test suite for platform-rpc module ([7cb4a33](https://github.com/PlatformNetwork/platform/commit/7cb4a33c4e08af0097f00b119605fb57f6932d70))
+* **rpc:** add comprehensive test suite for platform-rpc module ([55fc570](https://github.com/PlatformNetwork/platform/commit/55fc570c338885f1c81da349bf6ffb4b8b76dbec))
+* **secure-runtime:** achieve comprehensive test coverage for container runtime ([93459a8](https://github.com/PlatformNetwork/platform/commit/93459a8b2c18f00fd8ef1a502141c617c6100df1))
+
 ## [0.2.0](https://github.com/PlatformNetwork/platform/compare/v0.1.0...v0.2.0) (2026-01-04)
 
 
