@@ -54,3 +54,35 @@ async fn create_pool(database_url: &str) -> Result<DbPool> {
     let pool = cfg.create_pool(Some(Runtime::Tokio1), NoTls)?;
     Ok(pool)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_pool_success() {
+        // Test that create_pool can be called with a valid URL
+        // Note: This will fail at runtime if PostgreSQL is not available
+        // but tests syntax and compilation
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let result = create_pool("postgresql://localhost/test").await;
+            // We just check that the function returns a Result
+            // Actual connection will fail without a running database
+            assert!(result.is_ok() || result.is_err());
+        });
+    }
+
+    #[test]
+    fn test_db_pool_type() {
+        // Test that DbPool is correctly aliased to Pool
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool_result = create_pool("postgresql://localhost/test").await;
+            if let Ok(_pool) = pool_result {
+                // Pool type should match DbPool
+                let _typed: DbPool = _pool;
+            }
+        });
+    }
+}

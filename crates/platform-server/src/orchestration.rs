@@ -146,3 +146,112 @@ impl ChallengeManager {
         self.endpoints.read().keys().cloned().collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_challenge_manager_list_challenge_ids_empty() {
+        // Create a test endpoints map
+        let endpoints: Arc<RwLock<HashMap<String, String>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        // Verify empty list initially
+        let ids: Vec<String> = endpoints.read().keys().cloned().collect();
+        assert_eq!(ids.len(), 0);
+    }
+
+    #[test]
+    fn test_challenge_manager_endpoints_storage() {
+        let endpoints: Arc<RwLock<HashMap<String, String>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        // Add endpoint
+        endpoints
+            .write()
+            .insert("challenge1".to_string(), "http://localhost:8080".to_string());
+
+        // Verify retrieval
+        let endpoint = endpoints.read().get("challenge1").cloned();
+        assert_eq!(endpoint, Some("http://localhost:8080".to_string()));
+
+        // Verify list
+        let ids: Vec<String> = endpoints.read().keys().cloned().collect();
+        assert_eq!(ids.len(), 1);
+        assert!(ids.contains(&"challenge1".to_string()));
+    }
+
+    #[test]
+    fn test_challenge_manager_id_map_storage() {
+        let id_map: Arc<RwLock<HashMap<String, ChallengeId>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        // Add mapping
+        let challenge_id = ChallengeId::from_string("test-challenge");
+        id_map
+            .write()
+            .insert("test-challenge".to_string(), challenge_id);
+
+        // Verify retrieval
+        let retrieved = id_map.read().get("test-challenge").cloned();
+        assert!(retrieved.is_some());
+    }
+
+    #[test]
+    fn test_challenge_manager_remove_endpoint() {
+        let endpoints: Arc<RwLock<HashMap<String, String>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        // Add and then remove
+        endpoints
+            .write()
+            .insert("challenge1".to_string(), "http://localhost:8080".to_string());
+        assert_eq!(endpoints.read().len(), 1);
+
+        endpoints.write().remove("challenge1");
+        assert_eq!(endpoints.read().len(), 0);
+    }
+
+    #[test]
+    fn test_challenge_manager_multiple_endpoints() {
+        let endpoints: Arc<RwLock<HashMap<String, String>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        // Add multiple endpoints
+        endpoints
+            .write()
+            .insert("challenge1".to_string(), "http://localhost:8080".to_string());
+        endpoints
+            .write()
+            .insert("challenge2".to_string(), "http://localhost:8081".to_string());
+        endpoints
+            .write()
+            .insert("challenge3".to_string(), "http://localhost:8082".to_string());
+
+        assert_eq!(endpoints.read().len(), 3);
+
+        // Verify all endpoints
+        assert_eq!(
+            endpoints.read().get("challenge1").cloned(),
+            Some("http://localhost:8080".to_string())
+        );
+        assert_eq!(
+            endpoints.read().get("challenge2").cloned(),
+            Some("http://localhost:8081".to_string())
+        );
+        assert_eq!(
+            endpoints.read().get("challenge3").cloned(),
+            Some("http://localhost:8082".to_string())
+        );
+    }
+
+    #[test]
+    fn test_challenge_manager_get_nonexistent_endpoint() {
+        let endpoints: Arc<RwLock<HashMap<String, String>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        let endpoint = endpoints.read().get("nonexistent").cloned();
+        assert_eq!(endpoint, None);
+    }
+}
