@@ -328,10 +328,12 @@ impl DynamicStorage {
         let mut map = match existing {
             None => HashMap::new(),
             Some(StorageValue::Map(map)) => map,
-            Some(_) => return Err(MiniChainError::TypeMismatch(format!(
+            Some(_) => {
+                return Err(MiniChainError::TypeMismatch(format!(
                 "Cannot set map field on non-map value at key {:?}. Existing value is not a map.",
                 key
-            ))),
+            )))
+            }
         };
 
         map.insert(field.into(), value);

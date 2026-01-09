@@ -514,11 +514,11 @@ mod tests {
         let data = b"hello world";
         let hash = UpdateManager::compute_hash(data);
         assert_eq!(hash.len(), 64); // SHA256 = 32 bytes = 64 hex chars
-        
+
         // Same input should produce same hash
         let hash2 = UpdateManager::compute_hash(data);
         assert_eq!(hash, hash2);
-        
+
         // Different input should produce different hash
         let hash3 = UpdateManager::compute_hash(b"different");
         assert_ne!(hash, hash3);
@@ -562,7 +562,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let manager = UpdateManager::new(dir.path().to_path_buf());
 
-        let add = vec![platform_core::Hotkey([1u8; 32]), platform_core::Hotkey([2u8; 32])];
+        let add = vec![
+            platform_core::Hotkey([1u8; 32]),
+            platform_core::Hotkey([2u8; 32]),
+        ];
         let remove = vec![platform_core::Hotkey([3u8; 32])];
 
         let id = manager.queue_update(
@@ -593,7 +596,7 @@ mod tests {
         );
 
         assert_eq!(manager.pending_count(), 1);
-        
+
         let updates = manager.pending.read();
         assert_eq!(updates[0].update_type, UpdateType::HardReset);
     }
@@ -633,7 +636,7 @@ mod tests {
 
         let result = manager.process_updates().await;
         assert!(result.is_err());
-        
+
         match result {
             Err(UpdateError::AlreadyUpdating) => {}
             _ => panic!("Expected AlreadyUpdating error"),
@@ -654,7 +657,7 @@ mod tests {
 
         let pending = manager.pending.read();
         let update = pending.iter().find(|u| u.id == id).unwrap();
-        
+
         assert!(update.applied_at.is_none());
         assert!(update.rollback_data.is_none());
     }
@@ -673,7 +676,7 @@ mod tests {
         let manager = UpdateManager::new(dir.path().to_path_buf());
 
         assert!(!manager.is_updating());
-        
+
         *manager.updating.write() = true;
         assert!(manager.is_updating());
     }
@@ -707,7 +710,12 @@ mod tests {
         };
 
         // Verify they all serialize/deserialize
-        for payload in vec![wasm_payload, config_payload, validators_payload, reset_payload] {
+        for payload in vec![
+            wasm_payload,
+            config_payload,
+            validators_payload,
+            reset_payload,
+        ] {
             let json = serde_json::to_string(&payload).unwrap();
             let _decoded: UpdatePayload = serde_json::from_str(&json).unwrap();
         }
@@ -1108,7 +1116,10 @@ mod tests {
             update_type: UpdateType::Hot,
             version: "1.0.0".into(),
             target: UpdateTarget::Validators,
-            payload: UpdatePayload::Validators { add: add.clone(), remove: remove.clone() },
+            payload: UpdatePayload::Validators {
+                add: add.clone(),
+                remove: remove.clone(),
+            },
             status: UpdateStatus::Pending,
             created_at: chrono::Utc::now(),
             applied_at: None,
@@ -1119,7 +1130,10 @@ mod tests {
         assert!(update.rollback_data.is_none());
 
         let challenges_dir = dir.path().join("challenges");
-        assert!(!challenges_dir.exists(), "validator updates should not touch disk state");
+        assert!(
+            !challenges_dir.exists(),
+            "validator updates should not touch disk state"
+        );
     }
 
     #[tokio::test]
@@ -1344,5 +1358,4 @@ mod tests {
         let decoded: UpdateTarget = serde_json::from_str(&json).unwrap();
         assert!(matches!(decoded, UpdateTarget::AllChallenges));
     }
-
 }

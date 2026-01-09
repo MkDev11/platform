@@ -469,10 +469,7 @@ mod tests {
         assert_eq!(config_contents, br#"{"foo":"bar"}"#);
 
         // Challenge directory should be recreated with db contents
-        let challenge_dir = manager
-            .data_dir
-            .join("challenges")
-            .join("challengeA");
+        let challenge_dir = manager.data_dir.join("challenges").join("challengeA");
         let db_path = challenge_dir.join("db");
         let data_file = db_path.join("data.bin");
         assert!(db_path.exists());
@@ -560,12 +557,19 @@ mod tests {
         let state = ChainState::new(kp.hotkey(), NetworkConfig::default());
 
         let id = manager
-            .create_snapshot("manual_backup", 500, 5, &state, "Manual backup before update", false)
+            .create_snapshot(
+                "manual_backup",
+                500,
+                5,
+                &state,
+                "Manual backup before update",
+                false,
+            )
             .unwrap();
 
         let snapshots = manager.list_snapshots();
         assert_eq!(snapshots.len(), 1);
-        
+
         let meta = &snapshots[0];
         assert!(!meta.auto);
         assert_eq!(meta.reason, "Manual backup before update");
@@ -580,7 +584,14 @@ mod tests {
         let state = ChainState::new(kp.hotkey(), NetworkConfig::default());
 
         let id = manager
-            .create_snapshot("auto_snapshot_epoch_10", 1000, 10, &state, "Automatic snapshot", true)
+            .create_snapshot(
+                "auto_snapshot_epoch_10",
+                1000,
+                10,
+                &state,
+                "Automatic snapshot",
+                true,
+            )
             .unwrap();
 
         let snapshots = manager.list_snapshots();
@@ -591,11 +602,11 @@ mod tests {
     #[test]
     fn test_snapshot_with_challenge_data() {
         let dir = tempdir().unwrap();
-        
+
         // Create a challenges directory with some data
         let challenges_dir = dir.path().join("challenges");
         std::fs::create_dir_all(&challenges_dir).unwrap();
-        
+
         let challenge_dir = challenges_dir.join("test_challenge");
         std::fs::create_dir_all(&challenge_dir).unwrap();
         let db_dir = challenge_dir.join("db");
@@ -632,7 +643,7 @@ mod tests {
 
         let snapshots = manager.list_snapshots();
         assert_eq!(snapshots.len(), 5);
-        
+
         // Verify they're tracked
         for i in 0..5 {
             assert_eq!(snapshots[i].block_height, (i * 100) as u64);
@@ -653,7 +664,7 @@ mod tests {
 
         let snapshots = manager.list_snapshots();
         let meta = &snapshots[0];
-        
+
         // Size should be set after saving
         assert!(meta.size_bytes > 0);
     }
@@ -662,10 +673,10 @@ mod tests {
     fn test_snapshot_hash_computation() {
         let data = b"test data for hashing";
         let hash = SnapshotManager::compute_hash(data);
-        
+
         // SHA256 hash should be 64 hex characters
         assert_eq!(hash.len(), 64);
-        
+
         // Same data should produce same hash
         let hash2 = SnapshotManager::compute_hash(data);
         assert_eq!(hash, hash2);
@@ -762,7 +773,7 @@ mod tests {
         // Should only keep the 3 most recent
         let snapshots = manager.list_snapshots();
         assert_eq!(snapshots.len(), 3);
-        
+
         // Just verify we have exactly 3 snapshots (pruning worked)
         // The exact order/names may vary based on pruning implementation
     }
@@ -809,7 +820,14 @@ mod tests {
         // Create snapshots in order
         for i in 0..3 {
             manager
-                .create_snapshot(&format!("snap{}", i), (i + 1) * 100, i + 1, &state, "test", false)
+                .create_snapshot(
+                    &format!("snap{}", i),
+                    (i + 1) * 100,
+                    i + 1,
+                    &state,
+                    "test",
+                    false,
+                )
                 .unwrap();
         }
 

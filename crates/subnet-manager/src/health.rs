@@ -893,11 +893,26 @@ mod tests {
 
     #[test]
     fn test_worse_status_priority_ordering() {
-        assert_eq!(HealthMonitor::worse_status(HealthStatus::Healthy, HealthStatus::Degraded), HealthStatus::Degraded);
-        assert_eq!(HealthMonitor::worse_status(HealthStatus::Degraded, HealthStatus::Unhealthy), HealthStatus::Unhealthy);
-        assert_eq!(HealthMonitor::worse_status(HealthStatus::Unhealthy, HealthStatus::Critical), HealthStatus::Critical);
-        assert_eq!(HealthMonitor::worse_status(HealthStatus::Critical, HealthStatus::Healthy), HealthStatus::Critical);
-        assert_eq!(HealthMonitor::worse_status(HealthStatus::Healthy, HealthStatus::Healthy), HealthStatus::Healthy);
+        assert_eq!(
+            HealthMonitor::worse_status(HealthStatus::Healthy, HealthStatus::Degraded),
+            HealthStatus::Degraded
+        );
+        assert_eq!(
+            HealthMonitor::worse_status(HealthStatus::Degraded, HealthStatus::Unhealthy),
+            HealthStatus::Unhealthy
+        );
+        assert_eq!(
+            HealthMonitor::worse_status(HealthStatus::Unhealthy, HealthStatus::Critical),
+            HealthStatus::Critical
+        );
+        assert_eq!(
+            HealthMonitor::worse_status(HealthStatus::Critical, HealthStatus::Healthy),
+            HealthStatus::Critical
+        );
+        assert_eq!(
+            HealthMonitor::worse_status(HealthStatus::Healthy, HealthStatus::Healthy),
+            HealthStatus::Healthy
+        );
     }
 
     #[test]
@@ -910,7 +925,12 @@ mod tests {
 
         monitor.add_alert("cpu", AlertSeverity::Warning, "High CPU".into());
         monitor.add_alert("memory", AlertSeverity::Warning, "High memory".into());
-        let first_alert_id = monitor.active_alerts().iter().find(|a| a.component == "memory").unwrap().id;
+        let first_alert_id = monitor
+            .active_alerts()
+            .iter()
+            .find(|a| a.component == "memory")
+            .unwrap()
+            .id;
         monitor.acknowledge_alert(first_alert_id);
         monitor.add_alert("memory", AlertSeverity::Warning, "Still high".into());
 
@@ -948,10 +968,7 @@ mod tests {
             let alert_id = alert.id;
             monitor.acknowledge_alert(alert_id);
             let alerts_after = monitor.active_alerts();
-            let ack_alerts: Vec<_> = alerts_after
-                .iter()
-                .filter(|a| a.id == alert_id)
-                .collect();
+            let ack_alerts: Vec<_> = alerts_after.iter().filter(|a| a.id == alert_id).collect();
             if !ack_alerts.is_empty() {
                 assert!(ack_alerts[0].acknowledged);
             }
@@ -984,7 +1001,10 @@ mod tests {
 
         // Verify health monitoring is working
         let status = monitor.current_status();
-        assert!(matches!(status, HealthStatus::Healthy | HealthStatus::Degraded));
+        assert!(matches!(
+            status,
+            HealthStatus::Healthy | HealthStatus::Degraded
+        ));
     }
 
     #[test]
@@ -1033,7 +1053,10 @@ mod tests {
 
         // Should trigger degraded/critical status
         let status = monitor.current_status();
-        assert!(matches!(status, HealthStatus::Critical | HealthStatus::Degraded));
+        assert!(matches!(
+            status,
+            HealthStatus::Critical | HealthStatus::Degraded
+        ));
     }
 
     #[test]
@@ -1055,5 +1078,4 @@ mod tests {
         let oldest_timestamp = monitor.history.front().unwrap().timestamp;
         assert!(oldest_timestamp > first_timestamp);
     }
-
 }

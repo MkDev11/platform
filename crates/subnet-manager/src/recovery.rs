@@ -598,7 +598,10 @@ mod tests {
             .check_and_recover(&health)
             .await
             .expect("expected rollback");
-        assert!(matches!(attempt.action, RecoveryAction::RollbackToSnapshot(_))); 
+        assert!(matches!(
+            attempt.action,
+            RecoveryAction::RollbackToSnapshot(_)
+        ));
     }
 
     #[tokio::test]
@@ -706,7 +709,10 @@ mod tests {
             health.check(third);
         })
         .await;
-        assert!(matches!(evaluations_action, RecoveryAction::RestartEvaluations));
+        assert!(matches!(
+            evaluations_action,
+            RecoveryAction::RestartEvaluations
+        ));
 
         let fallback_action = run_case(|health| {
             let mut first = base_metrics();
@@ -726,7 +732,10 @@ mod tests {
             health.check(third);
         })
         .await;
-        assert!(matches!(fallback_action, RecoveryAction::RestartEvaluations));
+        assert!(matches!(
+            fallback_action,
+            RecoveryAction::RestartEvaluations
+        ));
     }
 
     #[tokio::test]
@@ -762,9 +771,7 @@ mod tests {
         let (mut manager, _, _, _dir) = create_manager_with_config(config);
         let mut health = create_aggressive_health_monitor();
 
-        health
-            .test_failure_counts_mut()
-            .insert("memory".into(), 1);
+        health.test_failure_counts_mut().insert("memory".into(), 1);
         health.test_history_mut().push_back(HealthCheck {
             timestamp: chrono::Utc::now(),
             status: HealthStatus::Degraded,
@@ -820,17 +827,10 @@ mod tests {
             let keypair = platform_core::Keypair::generate();
             let sudo_key = keypair.hotkey();
             let chain_state = ChainState::new(sudo_key, platform_core::NetworkConfig::default());
-            
+
             let mut snap_mgr = snapshots.write();
             snap_mgr
-                .create_snapshot(
-                    "test",
-                    1000,
-                    10,
-                    &chain_state,
-                    "test reason",
-                    false,
-                )
+                .create_snapshot("test", 1000, 10, &chain_state, "test reason", false)
                 .unwrap();
         }
 
@@ -982,18 +982,31 @@ mod tests {
 
         // First recovery attempt
         let attempt1 = manager.check_and_recover(&health).await;
-        assert!(attempt1.is_some(), "First attempt should execute a recovery action");
+        assert!(
+            attempt1.is_some(),
+            "First attempt should execute a recovery action"
+        );
         assert_eq!(manager.current_attempts(), 1);
 
         // Second recovery attempt
         let attempt2 = manager.check_and_recover(&health).await;
-        assert!(attempt2.is_some(), "Second attempt should still run while under the limit");
+        assert!(
+            attempt2.is_some(),
+            "Second attempt should still run while under the limit"
+        );
         assert_eq!(manager.current_attempts(), 2);
 
         // Third attempt should be limited (config disables fallback actions)
         let attempt3 = manager.check_and_recover(&health).await;
-        assert!(attempt3.is_none(), "Further attempts should be skipped once the max is reached");
-        assert_eq!(manager.current_attempts(), 2, "Attempt counter should not increase past the limit");
+        assert!(
+            attempt3.is_none(),
+            "Further attempts should be skipped once the max is reached"
+        );
+        assert_eq!(
+            manager.current_attempts(),
+            2,
+            "Attempt counter should not increase past the limit"
+        );
     }
 
     #[tokio::test]
@@ -1029,9 +1042,7 @@ mod tests {
         let mut manager =
             RecoveryManager::new(config, dir.path().to_path_buf(), snapshots, updates);
 
-        let attempt = manager
-            .manual_recovery(RecoveryAction::ClearJobQueue)
-            .await;
+        let attempt = manager.manual_recovery(RecoveryAction::ClearJobQueue).await;
         assert!(attempt.success);
         assert!(attempt.details.contains("cleared"));
     }
@@ -1073,7 +1084,9 @@ mod tests {
             .manual_recovery(RecoveryAction::RestartEvaluations)
             .await;
         manager.manual_recovery(RecoveryAction::ClearJobQueue).await;
-        manager.manual_recovery(RecoveryAction::ReconnectPeers).await;
+        manager
+            .manual_recovery(RecoveryAction::ReconnectPeers)
+            .await;
 
         let history = manager.history();
         assert_eq!(history.len(), 3);
