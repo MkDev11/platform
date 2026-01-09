@@ -320,18 +320,18 @@ mod tests {
 
     #[test]
     fn test_known_mnemonic_produces_expected_hotkey() {
-        // Test with a well-known BIP39 test vector (NOT a production key)
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        // Test the production sudo mnemonic
+        let mnemonic = "law stock festival crisp swap toilet bridge once payment alien antenna witness echo cheap search insect zebra thrive sugar picnic turtle grab satoshi nut";
         let kp = Keypair::from_mnemonic(mnemonic).unwrap();
 
-        // Verify deterministic derivation - same mnemonic always produces same key
-        let kp2 = Keypair::from_mnemonic(mnemonic).unwrap();
-        assert_eq!(kp.hotkey(), kp2.hotkey());
+        // Expected SS58: 5GziQCcRpN8NCJktX343brnfuVe3w6gUYieeStXPD1Dag2At
+        let expected_hotkey_hex =
+            "da220409678df5f06074a671abdc1f19bc2ba151729fdb9a8e4be284e60c9401";
+        assert_eq!(kp.hotkey().to_hex(), expected_hotkey_hex);
 
-        // Verify SS58 format is valid
+        // Verify SS58 format
         let ss58 = kp.ss58_address();
-        assert!(ss58.starts_with('5'));
-        assert!(ss58.len() >= 46 && ss58.len() <= 50);
+        assert_eq!(ss58, "5GziQCcRpN8NCJktX343brnfuVe3w6gUYieeStXPD1Dag2At");
     }
 
     #[test]
