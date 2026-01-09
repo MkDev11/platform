@@ -982,14 +982,18 @@ mod tests {
 
         // First recovery attempt
         let attempt1 = manager.check_and_recover(&health).await;
-        // Might succeed based on health status
+        assert!(attempt1.is_some(), "First attempt should execute a recovery action");
+        assert_eq!(manager.current_attempts(), 1);
 
         // Second recovery attempt
         let attempt2 = manager.check_and_recover(&health).await;
+        assert!(attempt2.is_some(), "Second attempt should still run while under the limit");
+        assert_eq!(manager.current_attempts(), 2);
 
-        // Third attempt should be limited
+        // Third attempt should be limited (config disables fallback actions)
         let attempt3 = manager.check_and_recover(&health).await;
-        // Should eventually stop or trigger fallback
+        assert!(attempt3.is_none(), "Further attempts should be skipped once the max is reached");
+        assert_eq!(manager.current_attempts(), 2, "Attempt counter should not increase past the limit");
     }
 
     #[tokio::test]
@@ -1246,6 +1250,6 @@ mod tests {
         let json = serde_json::to_string(&attempt).unwrap();
         let decoded: RecoveryAttempt = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.reason, "test");
-        assert_eq!(decoded.success, true);
+        assert!(decoded.success);
     }
 }

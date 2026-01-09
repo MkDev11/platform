@@ -602,7 +602,7 @@ fn sha256_hex(data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{HealthConfig, RecoveryConfig};
+    use crate::{HealthConfig, RecoveryConfig, SubnetConfig};
     use platform_core::{Keypair, Stake, ValidatorInfo};
     use tempfile::tempdir;
 
@@ -1540,8 +1540,8 @@ mod tests {
         let result = executor.execute_command(&SubnetCommand::RemoveChallenge {
             challenge_id: "nonexistent".into(),
         }).await;
-        // Should handle gracefully (may succeed or fail depending on implementation)
-        assert!(result.success || !result.success);
+        assert!(result.success);
+        assert_eq!(result.message, "Challenge removed: nonexistent");
     }
 
     #[tokio::test]
@@ -1551,8 +1551,8 @@ mod tests {
         let result = executor.execute_command(&SubnetCommand::PauseChallenge {
             challenge_id: "nonexistent".into(),
         }).await;
-        // Should handle gracefully
-        assert!(result.success || !result.success);
+        assert!(result.success);
+        assert_eq!(result.message, "Challenge paused: nonexistent");
     }
 
     #[tokio::test]
@@ -1584,24 +1584,38 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_epoch_length_zero() {
-        let (executor, _dir) = create_test_executor();
+        let (executor, dir) = create_test_executor();
+
+        let config_path = dir.path().join("subnet_config.json");
+        let mut config = SubnetConfig::default();
+        config.epoch_length = 42;
+        config.save(&config_path).unwrap();
 
         let result = executor.execute_command(&SubnetCommand::SetEpochLength {
             blocks: 0,
         }).await;
-        // Should handle zero value (may accept or reject)
-        assert!(result.success || !result.success);
+        assert!(result.success);
+
+        let updated = SubnetConfig::load(&config_path).unwrap();
+        assert_eq!(updated.epoch_length, 0);
     }
 
     #[tokio::test]
     async fn test_set_min_stake_zero() {
-        let (executor, _dir) = create_test_executor();
+        let (executor, dir) = create_test_executor();
+
+        let config_path = dir.path().join("subnet_config.json");
+        let mut config = SubnetConfig::default();
+        config.min_stake = 123;
+        config.save(&config_path).unwrap();
 
         let result = executor.execute_command(&SubnetCommand::SetMinStake {
             amount: 0,
         }).await;
-        // Should handle zero value
-        assert!(result.success || !result.success);
+        assert!(result.success);
+
+        let updated = SubnetConfig::load(&config_path).unwrap();
+        assert_eq!(updated.min_stake, 0);
     }
 
     #[tokio::test]
@@ -1696,7 +1710,8 @@ mod tests {
         let result = executor.execute_command(&SubnetCommand::RemoveChallenge {
             challenge_id: "definitely_does_not_exist".into(),
         }).await;
-        // May succeed (no-op) or fail depending on implementation
+        assert!(result.success);
+        assert_eq!(result.message, "Challenge removed: definitely_does_not_exist");
     }
 
     #[tokio::test]
@@ -1704,13 +1719,18 @@ mod tests {
         let (executor, _dir) = create_test_executor();
 
         // Paths for lines 332, 381
-        let result = executor.execute_command(&SubnetCommand::PauseChallenge {
+        let pause_result = executor.execute_command(&SubnetCommand::PauseChallenge {
             challenge_id: "nonexistent".into(),
         }).await;
 
-        let result = executor.execute_command(&SubnetCommand::ResumeChallenge {
+        let resume_result = executor.execute_command(&SubnetCommand::ResumeChallenge {
             challenge_id: "nonexistent".into(),
         }).await;
+
+        assert!(pause_result.success);
+        assert!(pause_result.message.contains("paused"));
+        assert!(resume_result.success);
+        assert!(resume_result.message.contains("resumed"));
     }
 
     #[tokio::test]
@@ -1718,17 +1738,24 @@ mod tests {
         let (executor, _dir) = create_test_executor();
 
         // Paths for lines 416-417, 425-426
-        let result = executor.execute_command(&SubnetCommand::UnbanValidator {
+        let validator_result = executor.execute_command(&SubnetCommand::UnbanValidator {
             hotkey: Hotkey([99u8; 32]),
         }).await;
 
-        let result = executor.execute_command(&SubnetCommand::UnbanHotkey {
+        let hotkey_result = executor.execute_command(&SubnetCommand::UnbanHotkey {
             hotkey: Hotkey([88u8; 32]),
         }).await;
 
-        let result = executor.execute_command(&SubnetCommand::UnbanColdkey {
+        let coldkey_result = executor.execute_command(&SubnetCommand::UnbanColdkey {
             coldkey: "nonexistent_coldkey".into(),
         }).await;
+
+        assert!(!validator_result.success);
+        assert!(validator_result.message.contains("not in ban list"));
+        assert!(!hotkey_result.success);
+        assert!(hotkey_result.message.contains("not in ban list"));
+        assert!(!coldkey_result.success);
+        assert!(coldkey_result.message.contains("not in ban list"));
     }
 
     #[tokio::test]

@@ -897,6 +897,7 @@ mod tests {
         assert_eq!(HealthMonitor::worse_status(HealthStatus::Degraded, HealthStatus::Unhealthy), HealthStatus::Unhealthy);
         assert_eq!(HealthMonitor::worse_status(HealthStatus::Unhealthy, HealthStatus::Critical), HealthStatus::Critical);
         assert_eq!(HealthMonitor::worse_status(HealthStatus::Critical, HealthStatus::Healthy), HealthStatus::Critical);
+        assert_eq!(HealthMonitor::worse_status(HealthStatus::Healthy, HealthStatus::Healthy), HealthStatus::Healthy);
     }
 
     #[test]
@@ -1055,27 +1056,4 @@ mod tests {
         assert!(oldest_timestamp > first_timestamp);
     }
 
-    #[test]
-    fn test_worse_status_ordering() {
-        assert_eq!(
-            HealthMonitor::worse_status(HealthStatus::Healthy, HealthStatus::Degraded),
-            HealthStatus::Degraded
-        );
-        assert_eq!(
-            HealthMonitor::worse_status(HealthStatus::Degraded, HealthStatus::Unhealthy),
-            HealthStatus::Unhealthy
-        );
-        assert_eq!(
-            HealthMonitor::worse_status(HealthStatus::Unhealthy, HealthStatus::Critical),
-            HealthStatus::Critical
-        );
-        assert_eq!(
-            HealthMonitor::worse_status(HealthStatus::Critical, HealthStatus::Healthy),
-            HealthStatus::Critical
-        );
-        assert_eq!(
-            HealthMonitor::worse_status(HealthStatus::Healthy, HealthStatus::Healthy),
-            HealthStatus::Healthy
-        );
-    }
 }

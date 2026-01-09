@@ -315,6 +315,8 @@ impl SnapshotManager {
     /// Serialize a directory to bytes (simplified)
     fn serialize_directory(path: &std::path::Path, output: &mut Vec<u8>) -> anyhow::Result<()> {
         // For now, just store the path - in production, would tar the directory
+        // NOTE: deserialize_directory writes the stored bytes back as raw data.
+        // This asymmetry is intentional for now, so document it until full tar support exists.
         let path_str = path.to_string_lossy();
         output.extend_from_slice(path_str.as_bytes());
         Ok(())
@@ -809,16 +811,13 @@ mod tests {
             manager
                 .create_snapshot(&format!("snap{}", i), (i + 1) * 100, i + 1, &state, "test", false)
                 .unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
         let snapshots = manager.list_snapshots();
         assert_eq!(snapshots.len(), 3);
-        
-        // Just verify all snapshots are present
+
+        // Verify deterministic ordering without relying on timing jitter
         let names: Vec<&str> = snapshots.iter().map(|s| s.name.as_str()).collect();
-        assert!(names.contains(&"snap0"));
-        assert!(names.contains(&"snap1"));
-        assert!(names.contains(&"snap2"));
+        assert_eq!(names, vec!["snap0", "snap1", "snap2"]);
     }
 }
