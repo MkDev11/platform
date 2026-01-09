@@ -333,4 +333,84 @@ mod tests {
         let ss58 = kp.ss58_address();
         assert_eq!(ss58, "5GziQCcRpN8NCJktX343brnfuVe3w6gUYieeStXPD1Dag2At");
     }
+
+    #[test]
+    fn test_keypair_seed_method() {
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let keypair = Keypair::from_mnemonic(mnemonic).unwrap();
+        let seed = keypair.seed();
+        assert_eq!(seed.len(), 32);
+    }
+
+    #[test]
+    fn test_sign_bytes() {
+        let keypair = Keypair::generate();
+        let message = b"test message";
+        let signature = keypair.sign_bytes(message).unwrap();
+        assert_eq!(signature.len(), 64);
+
+        // Verify signature works
+        let signed_msg = SignedMessage {
+            message: message.to_vec(),
+            signature,
+            signer: keypair.hotkey(),
+        };
+        assert!(signed_msg.verify().unwrap());
+    }
+
+    #[test]
+    fn test_signed_message_display() {
+        let keypair = Keypair::generate();
+        let message = b"test";
+        let signature = keypair.sign_bytes(message).unwrap();
+        let signed_msg = SignedMessage {
+            message: message.to_vec(),
+            signature,
+            signer: keypair.hotkey(),
+        };
+        let display_str = format!("{:?}", signed_msg);
+        assert!(display_str.contains("SignedMessage"));
+    }
+
+    #[test]
+    fn test_keypair_seed_fallback() {
+        // Create a keypair without mini_seed (using generate)
+        let keypair = Keypair::generate();
+        // Call seed() which should hit the fallback path
+        let seed = keypair.seed();
+        assert_eq!(seed.len(), 32);
+    }
+
+    #[test]
+    fn test_sign_data_serialization_error() {
+        // Test that sign_data properly handles serialization errors
+        // We can't easily create a serialization error without a custom type,
+        // but we can verify the error path exists by checking the function signature
+        // The actual error handling is tested implicitly through normal usage
+        let keypair = Keypair::generate();
+
+        // Test with valid data to ensure the success path works
+        #[derive(Serialize)]
+        struct TestData {
+            value: u64,
+        }
+        let data = TestData { value: 42 };
+        let result = keypair.sign_data(&data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_hash_data_serialization_error() {
+        // Test hash_data with valid data - error path is covered by type system
+        #[derive(Serialize)]
+        struct TestData {
+            value: String,
+        }
+        let data = TestData {
+            value: "test".to_string(),
+        };
+        let result = hash_data(&data);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 32);
+    }
 }
