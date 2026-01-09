@@ -394,31 +394,31 @@ Standard REST endpoints for submissions, evaluations, and challenges.
 
 ### WebSocket Endpoints
 
-| Endpoint                           | Description                       |
-| ---------------------------------- | --------------------------------- |
-| `/ws`                              | Validator events                  |
-| `/ws/challenge`                    | Challenge container events        |
+| Endpoint        | Description                |
+| --------------- | -------------------------- |
+| `/ws`           | Validator events           |
+| `/ws/challenge` | Challenge container events |
 
 ### Bridge Proxy
 
-| Endpoint                           | Description                       |
-| ---------------------------------- | --------------------------------- |
-| `/api/v1/bridge/{challenge_id}/*`  | Proxy to challenge containers     |
+| Endpoint                          | Description                   |
+| --------------------------------- | ----------------------------- |
+| `/api/v1/bridge/{challenge_id}/*` | Proxy to challenge containers |
 
 ## Configuration
 
-| Variable               | Description                          | Default                                     |
-| ---------------------- | ------------------------------------ | ------------------------------------------- |
-| `VALIDATOR_SECRET_KEY` | BIP39 mnemonic or hex key            | Required                                    |
-| `SUBTENSOR_ENDPOINT`   | Bittensor RPC endpoint               | `wss://entrypoint-finney.opentensor.ai:443` |
-| `NETUID`               | Subnet UID                           | `100`                                       |
-| `RUST_LOG`             | Log level                            | `info`                                      |
-| `PLATFORM_SERVER_URL`  | Platform server URL                  | `https://chain.platform.network`            |
-| `PLATFORM_PUBLIC_URL`  | Public URL for challenge containers  | Required                                    |
-| `DATABASE_URL`         | PostgreSQL connection (server only)  | Required for platform-server                |
-| `OWNER_HOTKEY`         | Subnet owner hotkey                  | Required for platform-server                |
-| `BROKER_WS_PORT`       | Container broker WebSocket port      | `8090`                                      |
-| `BROKER_JWT_SECRET`    | JWT secret for broker authentication | Required                                    |
+| Variable               | Description                          | Default                                     | Required     |
+| ---------------------- | ------------------------------------ | ------------------------------------------- | ------------ |
+| `VALIDATOR_SECRET_KEY` | BIP39 mnemonic or hex key            | -                                           | Yes          |
+| `SUBTENSOR_ENDPOINT`   | Bittensor RPC endpoint               | `wss://entrypoint-finney.opentensor.ai:443` | No           |
+| `NETUID`               | Subnet UID                           | `100`                                       | No           |
+| `RUST_LOG`             | Log level                            | `info`                                      | No           |
+| `PLATFORM_SERVER_URL`  | Platform server URL                  | `https://chain.platform.network`            | No           |
+| `PLATFORM_PUBLIC_URL`  | Public URL for challenge containers  | -                                           | Yes          |
+| `DATABASE_URL`         | PostgreSQL connection (server only)  | -                                           | Yes (server) |
+| `OWNER_HOTKEY`         | Subnet owner hotkey                  | -                                           | Yes (server) |
+| `BROKER_WS_PORT`       | Container broker WebSocket port      | `8090`                                      | No           |
+| `BROKER_JWT_SECRET`    | JWT secret for broker authentication | -                                           | Yes          |
 
 ## Binary
 
