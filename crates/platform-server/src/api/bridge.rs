@@ -110,12 +110,8 @@ async fn proxy_to_challenge(
         }
     };
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .unwrap();
-
-    let mut req_builder = client.request(method, &url);
+    // Use shared HTTP client from AppState (avoids creating new client per request)
+    let mut req_builder = state.http_client.request(method, &url);
     for (key, value) in headers.iter() {
         if key != "host" && key != "content-length" {
             req_builder = req_builder.header(key, value);

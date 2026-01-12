@@ -10,7 +10,7 @@ use platform_bittensor::Metagraph;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// System metrics from a validator
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -79,9 +79,21 @@ pub struct AppState {
     pub tempo: RwLock<u64>,
     /// Current block number from Bittensor
     pub current_block: RwLock<u64>,
+    /// Shared HTTP client for bridge proxy requests (reused to reduce CPU/memory)
+    pub http_client: reqwest::Client,
 }
 
 impl AppState {
+    /// Create a shared HTTP client for bridge proxy requests
+    fn create_http_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(120))
+            .pool_max_idle_per_host(50) // Keep connections warm
+            .pool_idle_timeout(Duration::from_secs(90))
+            .build()
+            .expect("Failed to create HTTP client")
+    }
+
     /// Constructor for dynamic orchestration mode
     #[allow(dead_code)] // Used by bins/platform
     pub fn new_dynamic(
@@ -101,6 +113,7 @@ impl AppState {
             metrics_cache: MetricsCache::new(),
             tempo: RwLock::new(DEFAULT_TEMPO),
             current_block: RwLock::new(0),
+            http_client: Self::create_http_client(),
         }
     }
 
@@ -123,6 +136,7 @@ impl AppState {
             metrics_cache: MetricsCache::new(),
             tempo: RwLock::new(DEFAULT_TEMPO),
             current_block: RwLock::new(0),
+            http_client: Self::create_http_client(),
         }
     }
 
